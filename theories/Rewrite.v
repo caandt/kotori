@@ -206,13 +206,13 @@ Section ChunkGeneration.
       end.
     Definition call_polhook{A} f c Rn :=
       [ Inum (Asm.PUSH2 Rn 30)
-      ; Inum (Asm.PUSH2 0 1) ] ++ f c ++
+      ; Inum (Asm.PUSH2 16 17) ] ++ f c ++
       [ Ib Sz1 (BL 0) (Rrt 2)
       ; Inum (Asm.POP2 Rn (30 + (Rn =? 30)))
       ; Inum c.(cn A) ].
     Definition polhook chunks :=
       let rets := retlist chunks in
-      let f c := [Iimm Sz2 0 (Rimm (index rets c.(ci) 0 orelse 0))] in
+      let f c := [Iimm Sz2 16 (Rimm (index rets c.(ci) 0 orelse 0))] in
       chunkmap (replace_indirect (call_polhook f)) chunks.
     Definition polhook2 chunks :=
       chunkmap (replace_indirect (call_polhook (const nil))) chunks.

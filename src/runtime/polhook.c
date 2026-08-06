@@ -2,15 +2,17 @@
 #ifdef A8_POL_HOOK
 asm(R"(
 log_b_epilogue:
-  ldp x0, x1, [sp], #16
+  ldp x16, x17, [sp], #16
   ret
 .global log_b
 log_b:
-  add x1, sp, #16
+  add x17, sp, #16
 )");
 void log_b_epilogue();
 static inline void add(rtd_t*, unsigned long, unsigned long);
-void _log_b(unsigned long src, unsigned long *dst) {
+void _log_b() {
+  unsigned long register src asm("x16");
+  unsigned long register *dst asm("x17");
   rtd_t *rtd = get_rtd();
   if (*dst < rtd->text_end && rtd->text_start <= *dst)
     *dst = lookup(rtd, *dst);
