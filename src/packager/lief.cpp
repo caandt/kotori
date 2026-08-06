@@ -109,6 +109,31 @@ void lief_update_symbols(ELFHandle* handle, rel_t rel) {
     }
 }
 
+void lief_update_dynamic_entry(ELFHandle* handle, rel_t rel) {
+    auto bin = static_cast<LIEF::ELF::Binary*>(handle);
+    using TAG = LIEF::ELF::DynamicEntry::TAG;
+    if (auto* init = bin->get(TAG::INIT)) {
+        auto val = rel(init->value() >> 2) << 2;
+        init->value(val);
+    }
+    if (auto* fini = bin->get(TAG::FINI)) {
+        auto val = rel(fini->value() >> 2) << 2;
+        fini->value(val);
+    }
+    if (auto* init_array = dynamic_cast<LIEF::ELF::DynamicEntryArray*>(bin->get(TAG::INIT_ARRAY))) {
+        std::vector<uint64_t>& arr = init_array->array();
+        for (uint64_t& val : arr) {
+            val = rel(val >> 2) << 2;
+        }
+    }
+    if (auto* fini_array = dynamic_cast<LIEF::ELF::DynamicEntryArray*>(bin->get(TAG::FINI_ARRAY))) {
+        std::vector<uint64_t>& arr = fini_array->array();
+        for (uint64_t& val : arr) {
+            val = rel(val >> 2) << 2;
+        }
+    }
+}
+
 // force the linker to keep this file in the archive
 void _force_link() {}
 

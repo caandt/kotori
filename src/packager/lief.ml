@@ -15,6 +15,7 @@ let set_entrypoint = foreign "lief_set_entrypoint" (elf @-> uint64_t @-> returni
 let add_segment = foreign "lief_add_segment" (elf @-> ptr uint32_t @-> size_t @-> uint64_t @-> returning bool)
 let write_and_free = foreign "lief_write_and_free" (elf @-> string @-> returning void)
 let update_symbols = foreign "lief_update_symbols" (elf @-> rel_t @-> returning void)
+let update_dynamic_entry = foreign "lief_update_dynamic_entry" (elf @-> rel_t @-> returning void)
 
 (* force the linker to keep lief.cpp in the archive *)
 external _force_link : unit -> unit = "_force_link"

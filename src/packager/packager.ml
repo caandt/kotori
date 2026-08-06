@@ -59,4 +59,8 @@ let update_symbols elf (rel: Uint63.t -> Uint63.t) =
   let rel' u64 = u63_of_u64 u64 |> rel |> u64_of_u63 in
   Lief.update_symbols elf rel'
 
+let update_dynamic_entry elf (rel: Uint63.t -> Uint63.t) =
+  let rel' u64 = u63_of_u64 u64 |> rel |> u64_of_u63 in
+  Lief.update_dynamic_entry elf rel'
+
 let write_and_free = Lief.write_and_free

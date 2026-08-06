@@ -43,6 +43,7 @@ let save args bin' (dat: CFI.Rewriter.data) =
   if args.update_symbols then (
     let* elf' = Packager.load_mem (String.concat "" (List.map Pstring.to_string bin')), "Error reading input" in
     Packager.update_symbols elf' dat.rel;
+    Packager.update_dynamic_entry elf' dat.rel;
     Packager.write_and_free elf' args.output;
     Ok (Unix.chmod args.output 0o755)
   ) else (
