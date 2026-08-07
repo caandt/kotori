@@ -21,7 +21,7 @@ let print_rules config =
 
 (rule
  (target %s_runtime.o)
- (deps ../runtime.c ../runtime.h)
+ (deps ../runtime.c ../runtime.h ../disable_aslr.c ../init_hook.c ../preload_rel.c ../sighandler.c)
  (action
   (run a64-gcc -c -ffreestanding -fno-stack-protector -nostdlib -fPIE -O3 %s ../runtime.c -I. -o %%{target})))
 

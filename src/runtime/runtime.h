@@ -1,3 +1,4 @@
+#pragma once
 #include <sys/syscall.h>
 #include <sys/personality.h>
 #include <sys/mman.h>

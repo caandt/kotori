@@ -1,4 +1,5 @@
 #include "runtime.h"
+
 #ifdef A8_HOOK
 asm(R"(
 hook_epilogue:
@@ -52,6 +53,6 @@ static inline void add(rtd_t *rtd, unsigned long key, unsigned long val) {
 #endif
 #else
 void hook() {
-  DIE("no pol hook");
+  DIE("no hook function");
 }
 #endif
