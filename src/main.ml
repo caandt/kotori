@@ -5,6 +5,7 @@ open Uint63
 type config = {
   update_symbols: bool;
   polhook: bool;
+  counthook: bool;
   input: string;
   output: string;
   pol: string option;
@@ -38,7 +39,7 @@ let serialize_dat (d:CFI.Rewriter.data) : Yojson.Basic.t =
     ("rets", `List (List.map ji d.rets));
   ]
 
-let save args bin' (dat: CFI.Rewriter.data) =
+let save args bin' dat =
   Option.iter (fun file -> Yojson.Basic.to_file file (serialize_dat dat)) args.json;
   if args.update_symbols then (
     let* elf' = Packager.load_mem (String.concat "" (List.map Pstring.to_string bin')), "Error reading input" in
@@ -57,13 +58,14 @@ let main args =
   let runtime = to_strl args.runtime in
   let nrelax = to_nat 3 in
   let getpol () = (
-    if args.polhook then Some (Fun.const zero, []) else
+    if args.polhook || args.counthook then Some (Fun.const zero, []) else
     match args.pol with
     | None -> Util.default_pol args.input
     | Some p -> Policy.read_policy args.input p
   ), "Error reading policy" in
   let hook =
-    if args.polhook then CFI.Rewriter.polhook2
+    if args.polhook then CFI.Rewriter.polhook
+    else if args.counthook then CFI.Rewriter.counthook
     else Fun.id in
 
   if args.onlyjson then
@@ -97,25 +99,33 @@ let abort =
 let update_symbols =
   let doc = "Enable updating symbols" in
   Arg.(value & flag & info ["s"; "symbols"] ~doc)
+
 let polhook =
   let doc = "Use policy collection hook" in
   Arg.(value & flag & info ["P"; "polhook"] ~doc)
+
+let counthook =
+  let doc = "Use count hook" in
+  Arg.(value & flag & info ["C"; "counthook"] ~doc)
+
 let json =
   let doc = "Dump JSON data to $(docv), or dump to OUTPUT and exit if $(docv) is \"only\"" in
   Arg.(value & opt (some string) None & info ["j"; "json"] ~docv:"FILE" ~doc)
+
 let lr =
   let doc = "Rewrite BL/BLR to link the original address" in
   Arg.(value & flag & info ["L"; "lr"] ~doc)
+
 let config =
-  let make input output runtime pol update_symbols polhook json lr =
+  let make input output runtime pol update_symbols polhook counthook json lr =
     let output = Option.value output ~default:(input ^ "_rw") in
     let runtime = Option.fold runtime
       ~some:(fun x -> In_channel.with_open_bin x In_channel.input_all)
-      ~none:(if polhook then Runtime.polhook2 else Runtime.base) in
+      ~none:(if counthook then Runtime.counthook else if polhook then Runtime.polhook else Runtime.base) in
     let onlyjson = json = Some "only" in
-    let json = if json = Some "only" then Some output else json in
-    { input; output; update_symbols; polhook; runtime; pol; json; onlyjson; lr } in
-  Term.(const make $ input $ output $ abort $ policy $ update_symbols $ polhook $ json $ lr)
+    let json = if onlyjson then Some output else json in
+    { input; output; update_symbols; polhook; counthook; runtime; pol; json; onlyjson; lr } in
+  Term.(const make $ input $ output $ abort $ policy $ update_symbols $ polhook $ counthook $ json $ lr)
 let cmd =
   let term = Term.(const main $ config) in
   let info = Cmd.info "a64-cfi" ~doc:"CFI rewriter for AArch64" in

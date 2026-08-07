@@ -197,14 +197,14 @@ Section ChunkGeneration.
       ai := ai; bti := bti; tc := tc;
       rets := rets; devs := devs;
     |}.
+  Section Hook.
   Definition rw_hook hook := makedata (stage3 (hook (stage2 (stage1)))).
-  Section PolHook.
     Fixpoint index{A} {eqd : EqDecision A} l x i :=
       match l with
       | nil => None
       | a::t => if eqd a x then Some i else index t x (succ i)
       end.
-    Definition call_polhook{A} f c Rn :=
+    Definition call_hook{A} f c Rn :=
       [ Inum (Asm.PUSH2 Rn 30)
       ; Inum (Asm.PUSH2 16 17) ] ++ f c ++
       [ Ib Sz1 (BL 0) (Rrt 2)
@@ -213,10 +213,10 @@ Section ChunkGeneration.
     Definition polhook chunks :=
       let rets := retlist chunks in
       let f c := [Iimm Sz2 16 (Rimm (index rets c.(ci) 0 orelse 0))] in
-      chunkmap (replace_indirect (call_polhook f)) chunks.
-    Definition polhook2 chunks :=
-      chunkmap (replace_indirect (call_polhook (const nil))) chunks.
-  End PolHook.
+      chunkmap (replace_indirect (call_hook f)) chunks.
+    Definition counthook chunks :=
+      chunkmap (replace_indirect (call_hook (const nil))) chunks.
+  End Hook.
 End ChunkGeneration.
 Section InstSelection.
   Variable d : data.

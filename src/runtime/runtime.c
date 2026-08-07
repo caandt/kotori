@@ -5,7 +5,7 @@ asm(R"(
 a8_runtime_start:
   b cfi_abort
   b _start
-  b log_b
+  b hook
 rtd: .fill 8
 
 _start:
@@ -62,7 +62,7 @@ void disable_aslr(long argv, long envp) {
   }
 }
 #endif
-#ifdef A8_POL_HOOK
+#ifdef A8_HOOK
 static inline char *basename(char *path, char **end) {
   char *s = path;
   char *last = 0;
@@ -72,7 +72,7 @@ static inline char *basename(char *path, char **end) {
   *end = s;
   return last == 0 ? path : last;
 }
-void init_polhook(long argv) {
+void init_hook(long argv) {
   char *end;
   char *path = basename(*(char**)argv, &end) - 5;
   long save_start = *(long*)path;
@@ -83,18 +83,19 @@ void init_polhook(long argv) {
   path[3] = 'p';
   path[4] = '/';
   end[0] = '.';
+#if A8_HOOK == 'P'
   end[1] = 'p';
-#if A8_POL_HOOK == 1
   end[2] = 'o';
   end[3] = 'l';
 #else
-  end[2] = 'h';
-  end[3] = '2';
+  end[1] = 'c';
+  end[2] = 'n';
+  end[3] = 't';
 #endif
   end[4] = '\0';
   long fd = syscall4(SYS_openat, 0, (long)path, O_RDWR, 0);
   rtd_t *rtd = get_rtd();
-#if A8_POL_HOOK == 1
+#if A8_HOOK == 'P'
   unsigned long nrets = rtd->nrets;
   unsigned long nextfree = sizeof(map_header) + rtd->nrets * sizeof(map_entry);
   unsigned long size = nextfree + (1024 * 1024);
@@ -156,8 +157,8 @@ void init(long argv, long envp) {
 #ifdef A8_NO_ASLR
   disable_aslr(argv, envp);
 #endif
-#ifdef A8_POL_HOOK
-  init_polhook(argv);
+#ifdef A8_HOOK
+  init_hook(argv);
 #endif
 #ifdef A8_SEGV_HANDLER
   add_sighandler();

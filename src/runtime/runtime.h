@@ -120,7 +120,7 @@ static inline unsigned long lookup(const rtd_t *const rtd, unsigned long addr) {
   return rtd->new_text_start + (4 * (n + rtd->d[ans].dev));
 }
 #endif
-#if A8_POL_HOOK == 1
+#if A8_HOOK == 'P'
 #define MAP_HEADER_MAGIC 0x7963696c6f70a8a8
 typedef struct {
   unsigned long magic;
@@ -131,7 +131,7 @@ typedef struct {
   unsigned long vals[7];
   unsigned long nextoffset;
 } map_entry;
-#else
+#elif A8_HOOK == 'C'
 #define MAP_HEADER_MAGIC 0x7963696c6f70a822
 typedef struct {
   unsigned long magic;
@@ -141,4 +141,6 @@ typedef struct {
 typedef struct {
   unsigned long count;
 } map_entry;
+#elif defined(A8_HOOK)
+#error "Invalid hook"
 #endif
