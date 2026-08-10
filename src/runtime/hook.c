@@ -10,18 +10,18 @@ hook:
   add x17, sp, #16
 )");
 void hook_epilogue();
-static inline void add(rtd_t*, unsigned long, unsigned long);
+static inline void add(unsigned long, unsigned long);
 void _hook() {
   unsigned long register src asm("x16");
   unsigned long register *dst asm("x17");
   rtd_t *rtd = get_rtd();
   if (*dst < rtd->text_end && rtd->text_start <= *dst)
     *dst = lookup(rtd, *dst);
-  add(rtd, src, *dst);
+  add(src, *dst);
   return hook_epilogue();
 }
 #if A8_HOOK == 'P'
-static inline void add(rtd_t *rtd, unsigned long key, unsigned long val) {
+static inline void add(unsigned long key, unsigned long val) {
   map_header *header = (map_header*)BASE;
   if (header->nrets <= key) DIE("Invalid polhook key");
   map_entry *e = ((map_entry*)(BASE + sizeof(map_header))) + key;
@@ -44,11 +44,19 @@ static inline void add(rtd_t *rtd, unsigned long key, unsigned long val) {
   }
 }
 #elif A8_HOOK == 'C'
-static inline void add(rtd_t *rtd, unsigned long key, unsigned long val) {
+static inline void add(unsigned long key, unsigned long val) {
   map_header *header = (map_header*)BASE;
-  if (rtd->new_text_end <= val || val < rtd->new_text_start) return;
-  map_entry *e = ((map_entry*)(BASE + sizeof(map_header))) + (val - rtd->new_text_start) / 4;
-  e->count++;
+  long offset = sizeof(map_header);
+  for (int i = 0; i < MAP_HEADER_SEGS; i++) {
+    if (!header->segs[i].end) return;
+    if (header->segs[i].end <= val || val < header->segs[i].start) {
+      offset += header->segs[i].size * sizeof(map_entry);
+    } else {
+      map_entry *e = ((map_entry*)(BASE + offset)) + (val - header->segs[i].start) / 4;
+      e->count++;
+      return;
+    }
+  }
 }
 #endif
 #else

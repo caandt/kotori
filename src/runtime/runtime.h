@@ -7,6 +7,7 @@
 #include <ucontext.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <linux/fs.h>
 
 #define BASE 0x8a000000
 #define BASE2 0xea8a0000
@@ -121,6 +122,11 @@ static inline unsigned long lookup(const rtd_t *const rtd, unsigned long addr) {
   return rtd->new_text_start + (4 * (n + rtd->d[ans].dev));
 }
 #endif
+typedef struct {
+  unsigned long start;
+  unsigned long end;
+  unsigned long size;
+} range_t;
 #if A8_HOOK == 'P'
 #define MAP_HEADER_MAGIC 0x7963696c6f70a8a8
 typedef struct {
@@ -134,10 +140,10 @@ typedef struct {
 } map_entry;
 #elif A8_HOOK == 'C'
 #define MAP_HEADER_MAGIC 0x7963696c6f70a822
+#define MAP_HEADER_SEGS 16
 typedef struct {
   unsigned long magic;
-  unsigned long nrets;
-  unsigned long nextfree;
+  range_t segs[MAP_HEADER_SEGS];
 } map_header;
 typedef struct {
   unsigned long count;

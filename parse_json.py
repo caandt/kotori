@@ -8,8 +8,9 @@ from pprint import pprint
 from pathlib import Path
 from collections import defaultdict
 
-def read_policy(mm, nrets):
+def read_policy(mm):
     res = defaultdict(set)
+    nrets, = struct.unpack("<q", mm[8:16]);
     for n in range(nrets):
         start = 24 + n * 64
         while start:
@@ -19,23 +20,27 @@ def read_policy(mm, nrets):
                 res[n].update(vals)
     return res
 
-def read_count(mm, nrets, base):
+def read_count(mm):
     res = {}
-    for n in range(nrets):
-        start = 24 + n * 8
-        count, = struct.unpack("<q", mm[start:start+8])
-        if count:
-            res[base + 4*n] = count
+    offset = 8 + 24 * 16
+    for start, stop, size in struct.iter_unpack("<3q", mm[8:offset]):
+        if stop == 0:
+            break
+        for n in range(size):
+            cnt, = struct.unpack("<q", mm[offset:offset+8])
+            if cnt:
+                res[start + 4 * n] = cnt
+            offset += 8
     return res
 
 def read_data(path):
     with open(path, "rb") as f:
         with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-            magic, nrets, nextfree = struct.unpack("<3q", mm[0:24]);
+            magic, = struct.unpack("<q", mm[0:8]);
             if magic == 0x7963696c6f70a8a8:
-                return read_policy(mm, nrets)
+                return read_policy(mm)
             elif magic == 0x7963696c6f70a822:
-                return read_count(mm, nrets, nextfree)
+                return read_count(mm)
             else:
                 raise Exception("unknown file type")
 
