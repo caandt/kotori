@@ -59,12 +59,17 @@ Record args := {
   rtlen: int;
   orig_lr: bool;
 }.
+Record table := {
+  tblhash: Hash.hash;
+  tblcontent: list int;
+  tblidx: int;
+}.
 Record data := {
   chunks: chunklist (list cinst);
   rel: int → int;
   ai: int;
   bti: int;
-  tc: list (Hash.hash * list int * int);
+  tc: list table;
   arg: args;
   rets: list int;
   devs: list int;
@@ -165,7 +170,7 @@ Section ChunkGeneration.
       (h, Hash.compute_table_m h ai D D')
     ) dsets <&> λ l,
       rev (fst (fold_left (λ '(acc, ti) '(h, tbl),
-        ((h, tbl, ti)::acc, ti + 2 * len tbl)
+        ({|tblhash:=h; tblcontent:=tbl; tblidx:=ti|}::acc, ti + 2 * len tbl)
       ) l ([], bti))).
   Definition indirect_reg{A} c :=
     match c.(ct A) with
@@ -228,14 +233,14 @@ Section InstSelection.
     | Rimm i => i
     | Raddr i => rel i << 2
     | Rrt i => (ai + i) << 2
-    | Rtbl i => ((snd <$> ith tc i) orelse 0) << 2
+    | Rtbl i => ((tblidx <$> ith tc i) orelse 0) << 2
     end.
   Definition isel i' inst :=
     match inst with
     | Inum n => Lst1 n
 
     | Ihsh r lbl =>
-        match (fst ∘ fst) <$> ith tc lbl with
+        match tblhash <$> ith tc lbl with
         | Some (Hash.H_UBFX lsb width) =>
             Lst2 Asm.NOP (Asm.UBFX true r r lsb width)
         | Some (Hash.H_EOR_UBFX shift lsb width) =>

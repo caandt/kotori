@@ -28,6 +28,7 @@ type cinst = [%import: CFI.Rewriter.cinst] [@@deriving show]
 type 'a chunk = [%import: 'a CFI.Rewriter.chunk] [@@deriving show]
 type nat = [%import: CFI.Rewriter.nat] [@@deriving show]
 type args = [%import: CFI.Rewriter.args] [@@deriving show]
+type table = [%import: CFI.Rewriter.table] [@@deriving show]
 type data = [%import: CFI.Rewriter.data] [@@deriving show]
 
 let vdso = List.map (lsr2 % of_int) [0x7ff7ffe320;0x7ff7ffe820;0x7ff7ffe5c0;0x7ff7ffe808;0x7ff7ffe770]

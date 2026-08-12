@@ -25,10 +25,10 @@ let serialize_dat (d:CFI.Rewriter.data) : Yojson.Basic.t =
     ("len", `Int (List.length d.arg.code));
     ("devs", `List (List.map ji d.devs));
     ("dsets", `List (List.map (fun d -> `List (List.map ji d)) d.arg.dsets));
-    ("tc", `List (List.map (fun ((h, tbl), ti) -> `Assoc [
-      ("hash", match h with H_UBFX (a, b) -> `List [ji a; ji b] | H_EOR_UBFX (a, b, c) -> `List [ji a; ji b; ji c]);
-      ("tbl", `List (List.map ji tbl));
-      ("ti", ji ti);
+    ("tc", `List (List.map (fun t -> `Assoc [
+      ("hash", match t.tblhash with H_UBFX (a, b) -> `List [ji a; ji b] | H_EOR_UBFX (a, b, c) -> `List [ji a; ji b; ji c]);
+      ("tbl", `List (List.map ji t.tblcontent));
+      ("ti", ji t.tblidx);
     ]) d.tc));
     ("pol", `List (List.init (List.length d.arg.code) ((+) (toint d.arg.bi)) |>
       List.filter_map (fun i ->
