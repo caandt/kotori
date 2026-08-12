@@ -13,6 +13,52 @@ static inline char *basename(char *path, char **end) {
   *end = s;
   return last == 0 ? path : last;
 }
+int manual_get_exec_segs(long fd, range_t *out, int len) {
+  char buf[4096];
+  int state = 0;
+  int r = 0;
+  unsigned long val = 0;
+  range_t range;
+  while (1) {
+    long n = syscall3(SYS_read, fd, (long)buf, sizeof(buf));
+    if (n <= 0) break;
+    for (long i = 0; i < n; i++) {
+      char c = buf[i];
+      switch (state) {
+      case 0: // start
+      case 1: // end
+        if (c >= '0' && c <= '9')
+          val = (val << 4) + c - '0';
+        else if (c >= 'a' && c <= 'f')
+          val = (val << 4) + c - 'a' + 10;
+        else {
+          if (!state) range.start = val;
+          else range.end = val;
+          val = 0;
+          state++;
+        }
+        break;
+      case 2: // 'r'
+      case 3: // 'w'
+        state++;
+        break;
+      case 4: // 'x'
+        if (c == 'x') {
+          out[r] = range;
+          out[r++].size = (range.end - range.start) / 4;
+          if (r == len) goto endloop;
+        }
+        state++;
+        break;
+      default: // '\n'
+        if (c == '\n') state = 0;
+      }
+    }
+  }
+endloop:
+  syscall1(SYS_close, fd);
+  return r;
+}
 static inline int get_exec_segs(range_t *out, int len) {
   long fd = sys_openat(0, "/proc/self/maps", 0, 0);
   if (fd < 0) {
@@ -26,7 +72,11 @@ static inline int get_exec_segs(range_t *out, int len) {
     q.query_addr = next_addr;
     long ret = syscall3(SYS_ioctl, fd, PROCMAP_QUERY, (long)&q);
     if (ret < 0) {
-      if (ret == -2) return i;
+      if (i == 0)
+        return manual_get_exec_segs(fd, out, len);
+      syscall1(SYS_close, fd);
+      if (ret == -2)
+        return i;
       DIE("PROCMAP_QUERY returned error");
     }
     out[i] = (range_t){ q.vma_start, q.vma_end, (q.vma_end - q.vma_start) / 4 };
