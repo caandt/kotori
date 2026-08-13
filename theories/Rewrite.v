@@ -180,7 +180,7 @@ Section ChunkGeneration.
   Definition replace_indirect{A} f c :=
     (f c <$> indirect_reg c) orelse c.(cd A).
   Definition retlist{A} (chunks: chunklist A) :=
-    map ci (filter (issome ∘ indirect_reg) chunks).
+    map ci (filter indirect_reg chunks).
   Fixpoint deviations idx cum lens :=
     match lens with
     | nil => nil

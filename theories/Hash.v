@@ -38,10 +38,10 @@ Section Hashing.
     Proof. lia. Defined.
   End find_valid.
   Definition find_ubfx_lsb width D D' := find_valid 32 (λ lsb, valid_hash (H_UBFX lsb width) D D' MSet.empty) 0.
-  Definition find_ubfx_width D D' := find_valid 12 (λ width, issome (find_ubfx_lsb width D D')) 3.
+  Definition find_ubfx_width D D' := find_valid 12 (λ width, find_ubfx_lsb width D D') 3.
   Definition find_eorubfx_lsb shift width D D' := find_valid 32 (λ lsb, valid_hash (H_EOR_UBFX shift lsb width) D D' MSet.empty) 0.
-  Definition find_eorubfx_shift width D D' := find_valid 32 (λ shift, issome (find_eorubfx_lsb shift width D D')) 1.
-  Definition find_eorubfx_width D D' := find_valid 22 (λ width, issome (find_eorubfx_shift width D D')) 8.
+  Definition find_eorubfx_shift width D D' := find_valid 32 (λ shift, find_eorubfx_lsb shift width D D') 1.
+  Definition find_eorubfx_width D D' := find_valid 30 (λ width, find_eorubfx_shift width D D') 8.
   Definition find_ubfx D D' :=
     width ← find_ubfx_width D D';
     lsb ← find_ubfx_lsb width D D';

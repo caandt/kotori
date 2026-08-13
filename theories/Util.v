@@ -10,12 +10,18 @@ Definition xb (n i j: int) := (n >> i) land (1 << (j - i) - 1).
 Notation "n :[ i , j ]" := (xb n i j) (at level 30, format "n :[ i ,  j ]").
 Notation "n :[ b ]" := (xb n b%uint63 (b%uint63 + 1)) (at level 30, format "n :[ b ]").
 
+Notation "m ≫= f" := (m ≫= f) (format "m  ≫=  '/' f").
+Notation "m ≫= 'λ' x .. y f" := (m ≫= (fun x => .. (fun y => f) ..))
+  (only printing, x binder, y binder,
+   format "m  ≫=  'λ'  x  ..  y  '/' f",
+   f at level 200, at level 60).
 Notation "m <&> f" := (fmap f m) (at level 61, left associativity).
-Notation "'return' x " := (mret x) (at level 10000).
+Notation "'return' x " := (mret x) (at level 60).
 Definition asrt (x:bool) : option unit := if x then Some tt else None.
-Notation "'assert' x ; f" := (_ ← asrt x; f) (at level 100).
+Notation "'assert' x ; f" := (_ ← asrt x; f) (at level 60, right associativity).
 Notation "x 'orelse' y" := (default y x) (at level 10).
 Definition issome {A} (x: option A) := if x then true else false.
+Coercion issome : option >-> bool.
 
 Fixpoint _mapi {A B} sz acc i f (l: list A) : list B :=
   match l with
@@ -45,7 +51,8 @@ Variant _letintoken := _letintokenIN | _letintokenEXTRACTION.
 Definition _letin{A B} (a:A) (_:{x:_letintoken|x=_letintokenIN}) (b:A->B) (_:{x:_letintoken|x=_letintokenEXTRACTION}) := b a.
 Notation "'let*' x := y 'in' z" :=
   (_letin y (exist _ _ eq_refl) (fun x => z) (exist _ _ eq_refl))
-  (at level 30, x pattern).
+  (at level 200, x pattern, right associativity,
+   format "'[v' 'let*'  x  :=  y  'in'  '/' z ']'").
 Extract Inductive _letintoken => "" ["in" "_ROCQ_LET_IN_EXTRACTION"].
 Extract Inlined Constant _letin => "let _ROCQ_LET_IN_EXTRACTION =".
 
