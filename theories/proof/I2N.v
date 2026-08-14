@@ -1,4 +1,5 @@
 From Coq Require Import ZArith NArith Uint63 Lia ZifyUint63 ZifyN.
+From Rewriter Require Import Util(xb,ones).
 From Picinae Require Import theory.
 
 Open Scope uint63.
@@ -11,17 +12,15 @@ Module notations.
   Notation "% z" := (Z.modulo z wB) (at level 1, format "% z") : Z_scope.
 End notations.
 Import notations.
-
 Section I2N.
   Variable i j: int.
-  Notation x := (to_Z i).
-  Notation y := (to_Z j).
   Notation n := (toN i).
   Notation m := (toN j).
 
   Lemma id: ofN n = i. Proof. lia. Qed.
   Lemma inj: n = m -> i = j. Proof. lia. Qed.
   Lemma inj_iff: n = m <-> i = j. Proof. lia. Qed.
+  Lemma inj_eqb: (n =? m)%N = (i =? j). Proof. lia. Qed.
 
   Lemma inj_add: toN (i + j) = %(n + m). Proof. lia. Qed.
   Lemma inj_sub: toN (i - j) = msub 63 n m.
@@ -61,6 +60,44 @@ Section I2N.
   Lemma inj_lt: i <? j = true <-> n < m. Proof. lia. Qed.
   Lemma inj_le: i <=? j = true <-> n <= m. Proof. lia. Qed.
 End I2N.
+Lemma to_of_N : forall n, toN (ofN n) = %n.
+Proof.
+  intro. rewrite of_Z_spec, Z2N.inj_mod, N2Z.id; lia.
+Qed.
+Lemma mp2_pow2: forall a b, ((2 ^ a) mod (2 ^ b) = if a <? b then 2 ^ a else 0)%N.
+Proof.
+  intros. destruct N.ltb eqn:E.
+    rewrite N.mod_small; try apply N.pow_lt_mono_r; lia.
+    rewrite N.Lcm0.mod_divide. exists (2 ^ (a-b)).
+      rewrite <-N.pow_add_r. f_equal. lia.
+Qed.
+Lemma inj_ones: forall i, toN (ones i) = %(N.ones (toN i)).
+Proof.
+  intros. unfold ones.
+  rewrite inj_sub, inj_lsl. simpl.
+  destruct %(_) eqn:N.
+    rewrite msub_0_l_neg, N.ones_mod_pow2; auto.
+    rewrite N.Lcm0.mod_divide, N.shiftl_mul_pow2, N.mul_1_l in N.
+    apply N.divide_pos_le in N.
+    now apply N.pow_le_mono_r_iff in N. lia.
+    rewrite msub_sub, <-N by lia.
+    rewrite N.ones_equiv, N.shiftl_mul_pow2, N.mul_1_l in *.
+    rewrite (N.mod_small (2^_)). lia. rewrite mp2_pow2 in N.
+    destruct N.ltb eqn:E. apply N.pow_lt_mono_r; lia. easy.
+Qed.
+Lemma inj_xb: forall n i w, toN (xb n i w) = xbits (toN n) (toN i) (toN i+toN w).
+Proof.
+  intros. unfold xb, xbits.
+  rewrite N.add_sub_swap, N.sub_diag, N.add_0_l by lia.
+  rewrite inj_land, inj_lsr, inj_ones.
+  destruct (w<?63) eqn:E.
+    rewrite N.mod_small, N.land_ones. easy.
+    rewrite N.ones_equiv. etransitivity; [|apply (N.pow_lt_mono_r 2 (toN w))]; lia.
+    rewrite N.ones_mod_pow2 by lia.
+    rewrite N.land_ones. rewrite !N.mod_small;
+    epose proof (N.shiftr_upper_bound (toN n) (toN i));
+    epose proof (N.pow_le_mono_r 2 63 (toN w)); lia.
+Qed.
 Module I2Z. Section I2Z.
   Open Scope Z.
   Variable i j: int.

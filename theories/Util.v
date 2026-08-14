@@ -6,9 +6,10 @@ Require PrimString.
 Export PrimString.PStringNotations PrimString(string).
 Open Scope uint63.
 
-Definition xb (n i j: int) := (n >> i) land (1 << (j - i) - 1).
-Notation "n :[ i , j ]" := (xb n i j) (at level 30, format "n :[ i ,  j ]").
-Notation "n :[ b ]" := (xb n b%uint63 (b%uint63 + 1)) (at level 30, format "n :[ b ]").
+Definition ones n := 1 << n - 1.
+Definition xb (n i w: int) := (n >> i) land ones w.
+Notation "n :[ i , w ]" := (xb n i w) (at level 30, format "n :[ i ,  w ]").
+Notation "n :[ b ]" := (xb n b 1) (at level 30, format "n :[ b ]").
 
 Notation "m ≫= f" := (m ≫= f) (format "m  ≫=  '/' f").
 Notation "m ≫= 'λ' x .. y f" := (m ≫= (fun x => .. (fun y => f) ..))

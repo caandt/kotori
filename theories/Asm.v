@@ -48,10 +48,10 @@ Definition TBZ b5 op b40 src dst Rt :=
   bounded (dst - src) 14 <&> λ imm14, Encode.TBZ b5 op b40 imm14 Rt.
 Definition ADR i imm Rd :=
   let dist := imm - i<<2 in
-  bounded dist 21 <&> λ imm21, Encode.ADR (imm21:[0,2]) (imm21:[2,21]) Rd.
+  bounded dist 21 <&> λ imm21, Encode.ADR (imm21:[0,2]) (imm21:[2,19]) Rd.
 Definition ADRP i imm Rd :=
   let dist := asr imm 12 - i>>10 in
-  bounded dist 21 <&> λ imm21, Encode.ADRP (imm21:[0,2]) (imm21:[2,21]) Rd.
+  bounded dist 21 <&> λ imm21, Encode.ADRP (imm21:[0,2]) (imm21:[2,19]) Rd.
 Function b16s imm hw {measure (λ x, to_nat (4 - x)) hw} :=
   if (hw <? 4)
   then let rest := b16s (imm >> 16) (succ hw) in
