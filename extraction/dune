@@ -1,9 +1,9 @@
-(coq.extraction
+(rocq.extraction
  (prelude extraction)
- (theories Rewriter RecordUpdate Ltac2 stdpp coqutil Picinae)
+ (theories Stdlib Rewriter RecordUpdate Ltac2 stdpp coqutil Picinae)
  (extracted_modules Rewriter))
 
 (library
  (name CFI)
- (libraries coq-primitive.uint63 coq-primitive.parray coq-primitive.pstring parmap)
+ (libraries rocq-primitive.uint63 rocq-primitive.parray rocq-primitive.pstring parmap)
  (modules Rewriter))

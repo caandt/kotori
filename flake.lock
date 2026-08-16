@@ -19,15 +19,15 @@
     "picinae": {
       "flake": false,
       "locked": {
-        "lastModified": 1767134880,
-        "narHash": "sha256-9ua3SsclZK0BgZIc9oXatBs29P0m92OMfVaGvOgJpQQ=",
-        "owner": "CharlesAverill",
+        "lastModified": 1786749980,
+        "narHash": "sha256-eweUZ1baik7/J5BJiZQSxOctRgOG317/BcaIZ4llxW8=",
+        "owner": "caandt",
         "repo": "Picinae",
-        "rev": "7eb1f4a1e74a8a9801d07e59ba01cadaa3cd1073",
+        "rev": "a613416dcda9d2215cd70afdc4645c9b14c39582",
         "type": "github"
       },
       "original": {
-        "owner": "CharlesAverill",
+        "owner": "caandt",
         "ref": "duneify",
         "repo": "Picinae",
         "type": "github"
@@ -36,16 +36,16 @@
     "rocq-primitive": {
       "flake": false,
       "locked": {
-        "lastModified": 1769190701,
-        "narHash": "sha256-4fT2Wky8C5dssFpOZ8oh0EXfontl3s1G/RMzKif4ct4=",
+        "lastModified": 1769425546,
+        "narHash": "sha256-AGVYWIiAe/cmAffV6jDHc166yUg1zDFzUj6b1NvWyvk=",
         "owner": "peregrine-project",
         "repo": "rocq-primitive",
-        "rev": "9b04337e19026f764ecf74e64f1eac136ab79f35",
+        "rev": "64f5e58bce115415bd61e3285aa077410a3f25d0",
         "type": "github"
       },
       "original": {
         "owner": "peregrine-project",
-        "ref": "8.20.0",
+        "ref": "9.0.0",
         "repo": "rocq-primitive",
         "type": "github"
       }

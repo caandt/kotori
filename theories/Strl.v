@@ -1,8 +1,7 @@
-Require Import List Uint63 PString Recdef Lia ZifyUint63 ZArith Utf8.
+From Stdlib Require Import List Uint63 PString Recdef Lia ZifyUint63 ZArith Utf8.
 Open Scope uint63.
 Open Scope pstring.
 
-Module S := PrimString.
 Module SL.
   Fixpoint get sl i :=
     match sl with

@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     picinae = {
       type = "github";
-      owner = "CharlesAverill";
+      owner = "caandt";
       repo = "Picinae";
       ref = "duneify";
       flake = false;
@@ -14,7 +14,7 @@
       type = "github";
       owner = "peregrine-project";
       repo = "rocq-primitive";
-      ref = "8.20.0";
+      ref = "9.0.0";
       flake = false;
     };
   };
@@ -30,25 +30,25 @@
     packages = forAllSystems (
       system: let
         pkgs = import nixpkgs {inherit system;};
-        coqPackages = pkgs.coqPackages_8_20;
-        coq = coqPackages.coq;
+        coqPackages = pkgs.coqPackages_9_1;
+        rocq = pkgs.rocqPackages_9_1.rocq-core;
         ocamlPackages = pkgs.ocamlPackages;
         rocq-picinae = ocamlPackages.buildDunePackage {
           pname = "rocq-picinae";
           version = "0.0.0";
           src = inputs.picinae;
-          nativeBuildInputs = [coq];
+          nativeBuildInputs = [rocq];
           buildInputs = [coqPackages.stdlib];
           postInstall = ''
-            mkdir -p $out/lib/coq/${coq.coq-version}
+            mkdir -p $out/lib/coq/${rocq.rocq-version}
             ln -s $out/lib/ocaml/*/site-lib/coq/user-contrib \
-              $out/lib/coq/${coq.coq-version}/user-contrib
+              $out/lib/coq/${rocq.rocq-version}/user-contrib
           '';
-          env.OCAMLPATH = "${coq}/lib";
+          env.OCAMLPATH = "${rocq}/lib";
         };
         rocq-primitive = ocamlPackages.buildDunePackage {
-          pname = "coq-primitive";
-          version = "8.20.0";
+          pname = "rocq-primitive";
+          version = "9.0.0";
           src = inputs.rocq-primitive;
         };
         a64-cc = let
@@ -69,7 +69,7 @@
           pname = "a8";
           version = "0.0.0";
           src = ./.;
-          nativeBuildInputs = [coq a64-cc];
+          nativeBuildInputs = [rocq a64-cc];
           buildInputs =
             [pkgs.lief]
             ++ (with ocamlPackages; [
@@ -90,9 +90,9 @@
               coqutil
             ]);
           passthru = {
-            inherit ocamlPackages;
+            inherit ocamlPackages coqPackages rocq;
           };
-          env.OCAMLPATH = "${coq}/lib";
+          env.OCAMLPATH = "${rocq}/lib";
         };
       in {
         default = a8;
@@ -106,9 +106,11 @@
         default = pkgs.mkShell {
           inputsFrom = [a8];
           packages = [
+            a8.coqPackages.coq
             a8.ocamlPackages.utop
             pkgs.perf
           ];
+          env.OCAMLPATH = "${a8.rocq}/lib";
         };
       }
     );

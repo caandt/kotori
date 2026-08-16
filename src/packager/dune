@@ -1,6 +1,6 @@
 (library
  (name packager)
- (libraries coq-primitive.uint63 ctypes ctypes.foreign)
+ (libraries rocq-primitive.uint63 ctypes ctypes.foreign)
  (foreign_stubs
   (language cxx)
   (names lief)

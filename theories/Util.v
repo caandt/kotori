@@ -1,5 +1,5 @@
-Require Export Uint63 List Bool Recdef Lia ZifyUint63.
-Require Import Orders MSetRBT ZArith.
+From Stdlib Require Export Uint63 List Bool Recdef Lia ZifyUint63.
+From Stdlib Require Import Orders MSetRBT ZArith.
 From stdpp Require Import countable gmap.
 From stdpp Require Export option.
 Require PrimString.

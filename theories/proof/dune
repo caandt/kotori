@@ -1,4 +1,4 @@
-(coq.theory
+(rocq.theory
  (name Rewriter.proof)
- (theories Rewriter Picinae RecordUpdate Ltac2 stdpp coqutil)
+ (theories Stdlib Rewriter Picinae RecordUpdate Ltac2 stdpp coqutil)
  (package a8))

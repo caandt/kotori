@@ -1,4 +1,4 @@
-From Coq Require Import List Uint63 PString Lia ZifyUint63 ZArith Utf8.
+From Stdlib Require Import List Uint63 PString Lia ZifyUint63 ZArith Utf8.
 From Rewriter Require Export Strl.
 Import SL.
 

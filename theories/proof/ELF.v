@@ -1,4 +1,4 @@
-From Coq Require Import PString ZArith.
+From Stdlib Require Import PString ZArith.
 From Rewriter Require Import proof.Util Strl ELF.
 From Rewriter.proof Require Import I2N Strl.
 From coqutil Require Import prove_Zeq_bitwise.
@@ -205,7 +205,7 @@ Lemma getu64_u64:
   forall a, getu64 [of_list (u64 a)] 0 = Some a.
 Proof.
   intros. unfold getu64, getu32, getu16, getu8.
-  remember (S.length _). simpl in Heqi.
+  remember (PrimString.length _). simpl in Heqi.
   rewrite length_spec_int in Heqi.
   rewrite !cat_spec, !make_spec in Heqi. simpl in Heqi. cbv in Heqi.
   subst i. cbv[ add ltb].

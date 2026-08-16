@@ -1,5 +1,5 @@
 From Rewriter Require Import Rewrite ELF.
-Require Import Extraction ExtrOCamlInt63 ExtrOcamlBasic ExtrOCamlPArray ExtrOCamlPString PArray.
+From Stdlib Require Import Extraction ExtrOCamlInt63 ExtrOcamlBasic ExtrOCamlPArray ExtrOCamlPString PArray.
 
 Extraction Language OCaml.
 Extract Constant array "'a" => "'a Parray.t".
