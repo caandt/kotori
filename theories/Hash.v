@@ -1,5 +1,5 @@
-Require Import Util.
-Require Asm.
+From Rewriter Require Import Util.
+From Rewriter Require Asm.
 Require Import ZArith Orders Lia ZifyUint63 MSetRBT.
 Import ListNotations.
 

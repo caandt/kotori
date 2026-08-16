@@ -1,6 +1,6 @@
 From stdpp Require Import gmap.
-Require Import Util.
-Require Hash Decode Asm.
+From Rewriter Require Import Util.
+From Rewriter Require Hash Decode Asm.
 Import Decode(ityp(..),decode).
 Import ListNotations.
 
@@ -131,15 +131,15 @@ Section ChunkGeneration.
   End InstRewriter.
   Definition stage2 := chunkmap rw_inst.
   Section Relaxation.
-    Definition chunksize c := fold_left add (map_single instsize c.(cd)) 0.
+    Definition chunksize c := nsum (map_single instsize c.(cd)).
     Definition makerel chunks :=
       let lens := map chunksize chunks in
       let csum := csum bi' lens in
       let rel x := csum (x - bi) in
       let ei := bi + len chunks in
-      λ x, if (bi <=? x) && (x <=? ei)
+      (λ x, if (bi <=? x) && (x <? ei)
            then rel x
-           else x.
+           else x, csum).
     Definition fits bw n := (lesb (-1<<(bw-1)) n) && (ltsb n (1<<(bw-1))).
     Definition relaxi rel i' inst :=
       match inst with
@@ -159,7 +159,7 @@ Section ChunkGeneration.
       | _ => inst
       end.
     Definition relax chunks :=
-      let rel := makerel chunks in
+      let (rel, _) := makerel chunks in
       chunkmapi rel (relaxi rel) chunks.
   End Relaxation.
   Definition stage3 := Nat.iter a.(nrelax) relax.
@@ -174,7 +174,7 @@ Section ChunkGeneration.
       ) l ([], bti))).
   Definition indirect_reg{A} c :=
     match c.(ct A) with
-    | BR Rn | BLR Rn | RET Rn => Some Rn
+    | BR rn | BLR rn | RET rn => Some rn
     | _ => None
     end.
   Definition replace_indirect{A} f c :=
@@ -191,8 +191,8 @@ Section ChunkGeneration.
         else idx::next_cum_dev::deviations (idx+1) next_cum_dev t
     end.
   Definition makedata chunks :=
-    let rel := makerel chunks in
-    let ai := pad_to (rel (bi + len a.(code))) 10 in
+    let '(rel, csum) := makerel chunks in
+    let ai := pad_to (csum (len a.(code))) 10 in
     let bti := pad_to (ai + a.(rtlen)>>2) 10 in
     let rets := retlist chunks in
     let devs := deviations 0 0 (map chunksize chunks) in
@@ -209,11 +209,11 @@ Section ChunkGeneration.
       | nil => None
       | a::t => if eqd a x then Some i else index t x (succ i)
       end.
-    Definition call_hook{A} f c Rn :=
-      [ Inum (Asm.PUSH2 Rn 30)
+    Definition call_hook{A} f c rn :=
+      [ Inum (Asm.PUSH2 rn 30)
       ; Inum (Asm.PUSH2 16 17) ] ++ f c ++
       [ Ib Sz1 (BL 0) (Rrt 2)
-      ; Inum (Asm.POP2 Rn (30 + (Rn =? 30)))
+      ; Inum (Asm.POP2 rn (30 + (rn =? 30)))
       ; Inum c.(cn A) ].
     Definition polhook chunks :=
       let rets := retlist chunks in

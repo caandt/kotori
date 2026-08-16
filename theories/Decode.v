@@ -1,5 +1,5 @@
 (* minimal aarch64 decoder *)
-Require Import Util.
+From Rewriter Require Import Util.
 
 Variant ityp :=
   | ignore

@@ -62,6 +62,7 @@ Extract Constant print_endline => "(fun x -> print_endline (Pstring.to_string x)
 Axiom print_int : int -> unit.
 Extract Constant print_int => "(fun x -> print_int (Int64.to_int (Uint63.to_int64 x)))".
 
+Definition nsum lst := fold_left add lst 0.
 Fixpoint csum sum lst n :=
   match lst with
   | nil => sum

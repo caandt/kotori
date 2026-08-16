@@ -1,5 +1,5 @@
 From Coq Require Import PString ZArith.
-From Rewriter Require Import Util Strl ELF.
+From Rewriter Require Import proof.Util Strl ELF.
 From Rewriter.proof Require Import I2N Strl.
 From coqutil Require Import prove_Zeq_bitwise.
 Import SL.
@@ -16,6 +16,7 @@ Definition u16_before : forall s i j (I: (to_Z i < wB - 1)%Z) (J: i + 1 <? j = t
 Proof. intros. unfold getu16. now rewrite (u8_before s i j), (u8_before s (i+1) j) by lia. Qed.
 Definition u32_before : forall s i j (I: (to_Z i < wB - 3)%Z) (J: i + 3 <? j = true), getu32 s i = getu32 (sub s 0 j) i.
 Proof. intros. unfold getu32. now rewrite (u16_before s i j), (u16_before s (i+2) j) by lia. Qed.
+
 Definition u64_before : forall s i j (I: (to_Z i < wB - 7)%Z) (J: i + 7 <? j = true), getu64 s i = getu64 (sub s 0 j) i.
 Proof. intros. unfold getu64. now rewrite (u32_before s i j), (u32_before s (i+4) j), (u8_before s (i+7) j) by lia. Qed.
 
@@ -54,33 +55,6 @@ Qed.
 Lemma addl: forall i j, i <? i + j = true -> (to_Z i + to_Z j < wB)%Z. Proof. lia. Qed.
 Lemma add_0_int: forall i, i = 0 + i. Proof. lia. Qed.
 
-Ltac unfold_first x H :=
-  match x with
-  | ?a _ => unfold_first a H
-  | _ => unfold x in H; simpl in H
-  end.
-Ltac so H :=
-  match type of H with
-  | (assert _; _) = Some _ =>
-      let A := fresh "A" in
-      let B := fresh "B" in
-      apply bind_Some in H as (A&B&H);
-      destruct (_:bool) eqn:? in B; try easy; clear A B
-  | _ ≫= _ = Some _ => apply bind_Some in H as (?&?&H)
-  | _ <&> _ = Some _ => apply fmap_Some in H as (?&?&H)
-  | (return _) = Some _ => injection H as H
-  | Some _ = Some _ => injection H as H
-  | (?a = Some _) => unfold_first a H
-  end.
-Ltac sog :=
-  match goal with
-  | |- (assert ?E; _) = Some _ => replace E with true; simpl
-  | |- (return _) = Some _ => f_equal
-  | |- (?E <&> _) = Some _ =>
-      let H := fresh "H" in eenough (E = Some _) as H; rewrite ?H; simpl
-  | |- (?E ≫= _) = Some _ =>
-      let H := fresh "H" in eenough (E = Some _) as H; rewrite ?H; simpl
-  end.
 Lemma parse_elf_data:
   forall {bin elf} (E: parse_elf bin = Some elf),
     data elf = bin.

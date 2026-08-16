@@ -1,5 +1,5 @@
-Require Import Util Sint63.
-Require Import Lia ZifyUint63.
+From Rewriter Require Import Util.
+From Coq Require Import Sint63 Lia ZifyUint63.
 
 Module Encode.
   Definition Bcond imm19 cond :=
