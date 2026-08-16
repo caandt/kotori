@@ -1,0 +1,63 @@
+{
+  "nodes": {
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1786599213,
+        "narHash": "sha256-yNJd40f11EzXBjSByCB7IPpeFFAdeoSKKM67dGkfFoU=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "0e251e24a4f24e036a084b6b4b2d2491af4167f4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "picinae": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1767134880,
+        "narHash": "sha256-9ua3SsclZK0BgZIc9oXatBs29P0m92OMfVaGvOgJpQQ=",
+        "owner": "CharlesAverill",
+        "repo": "Picinae",
+        "rev": "7eb1f4a1e74a8a9801d07e59ba01cadaa3cd1073",
+        "type": "github"
+      },
+      "original": {
+        "owner": "CharlesAverill",
+        "ref": "duneify",
+        "repo": "Picinae",
+        "type": "github"
+      }
+    },
+    "rocq-primitive": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1769190701,
+        "narHash": "sha256-4fT2Wky8C5dssFpOZ8oh0EXfontl3s1G/RMzKif4ct4=",
+        "owner": "peregrine-project",
+        "repo": "rocq-primitive",
+        "rev": "9b04337e19026f764ecf74e64f1eac136ab79f35",
+        "type": "github"
+      },
+      "original": {
+        "owner": "peregrine-project",
+        "ref": "8.20.0",
+        "repo": "rocq-primitive",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "picinae": "picinae",
+        "rocq-primitive": "rocq-primitive"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

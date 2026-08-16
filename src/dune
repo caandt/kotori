@@ -1,5 +1,6 @@
 (executable
  (name main)
+ (public_name a8)
  (libraries CFI runtime packager cmdliner yojson)
  (preprocess (staged_pps ppx_import ppx_deriving.show)))
 
