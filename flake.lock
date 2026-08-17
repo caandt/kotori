@@ -19,15 +19,15 @@
     "picinae": {
       "flake": false,
       "locked": {
-        "lastModified": 1786749980,
-        "narHash": "sha256-eweUZ1baik7/J5BJiZQSxOctRgOG317/BcaIZ4llxW8=",
-        "owner": "caandt",
+        "lastModified": 1786985454,
+        "narHash": "sha256-Yjdd+yIcQgwIJhyWWo7rrku0c37NSbEKurEyfpplJ3w=",
+        "owner": "CharlesAverill",
         "repo": "Picinae",
-        "rev": "a613416dcda9d2215cd70afdc4645c9b14c39582",
+        "rev": "a77bcf58020f81a5ce432e4c6f786a968e788105",
         "type": "github"
       },
       "original": {
-        "owner": "caandt",
+        "owner": "CharlesAverill",
         "ref": "duneify",
         "repo": "Picinae",
         "type": "github"

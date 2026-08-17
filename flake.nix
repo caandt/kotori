@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     picinae = {
       type = "github";
-      owner = "caandt";
+      owner = "CharlesAverill";
       repo = "Picinae";
       ref = "duneify";
       flake = false;
@@ -34,7 +34,7 @@
         rocq = pkgs.rocqPackages_9_1.rocq-core;
         ocamlPackages = pkgs.ocamlPackages;
         rocq-picinae = ocamlPackages.buildDunePackage {
-          pname = "rocq-picinae";
+          pname = "picinae-rocq";
           version = "0.0.0";
           src = inputs.picinae;
           nativeBuildInputs = [rocq];
