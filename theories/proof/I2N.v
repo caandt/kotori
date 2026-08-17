@@ -1,5 +1,5 @@
 From Stdlib Require Import ZArith NArith Uint63 Lia ZifyUint63 ZifyN.
-From Rewriter Require Import Util(xb,ones).
+From Kotori Require Import Util(xb,ones).
 From Picinae Require Import theory.
 
 Open Scope uint63.

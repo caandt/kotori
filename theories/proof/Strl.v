@@ -1,5 +1,5 @@
 From Stdlib Require Import List Uint63 PString Lia ZifyUint63 ZArith Utf8.
-From Rewriter Require Export Strl.
+From Kotori Require Export Strl.
 Import SL.
 
 Lemma lo_get:

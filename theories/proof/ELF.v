@@ -1,6 +1,6 @@
 From Stdlib Require Import PString ZArith.
-From Rewriter Require Import proof.Util Strl ELF.
-From Rewriter.proof Require Import I2N Strl.
+From Kotori Require Import proof.Util Strl ELF.
+From Kotori.proof Require Import I2N Strl.
 From coqutil Require Import prove_Zeq_bitwise.
 Import SL.
 

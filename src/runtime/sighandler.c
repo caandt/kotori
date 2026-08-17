@@ -6,7 +6,7 @@ void segfault_handler(int sig, siginfo_t *info, void *context) {
   long pc = uc->uc_mcontext.pc;
   long addr = (long)info->si_addr;
   if (rtd->text_start <= pc && pc < rtd->text_end) {
-    syscall3(SYS_write, 2, (long)"a8 warn: fixup\n", 15);
+    syscall3(SYS_write, 2, (long)"kotori warn: fixup\n", 15);
     uc->uc_mcontext.pc = lookup(rtd, addr);
   } else {
     WRITE("Segmentation fault at "); print16(pc); WRITE("\n");

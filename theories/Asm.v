@@ -1,4 +1,4 @@
-From Rewriter Require Import Util.
+From Kotori Require Import Util.
 From Stdlib Require Import Sint63 Lia ZifyUint63.
 
 Module Encode.

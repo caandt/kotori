@@ -1,4 +1,4 @@
-From Rewriter Require Export Util.
+From Kotori Require Export Util.
 
 Ltac unfold_first x H :=
   match x with

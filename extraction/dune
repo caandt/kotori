@@ -1,9 +1,9 @@
 (rocq.extraction
  (prelude extraction)
- (theories Stdlib Rewriter RecordUpdate Ltac2 stdpp coqutil Picinae)
- (extracted_modules Rewriter))
+ (theories Stdlib Kotori RecordUpdate Ltac2 stdpp coqutil Picinae)
+ (extracted_modules kotori))
 
 (library
- (name CFI)
+ (name kotori)
  (libraries rocq-primitive.uint63 rocq-primitive.parray rocq-primitive.pstring parmap)
- (modules Rewriter))
+ (modules kotori))

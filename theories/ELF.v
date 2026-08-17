@@ -1,5 +1,5 @@
 From Stdlib Require Import PString.
-From Rewriter Require Import Util Rewrite Strl.
+From Kotori Require Import Util Rewrite Strl.
 From RecordUpdate Require Import RecordUpdate.
 
 Import SL.

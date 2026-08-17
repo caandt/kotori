@@ -17,24 +17,24 @@ module Uint63 = struct
   include Uint63
   let pp fmt x = Format.pp_print_string fmt (hex x)
 end
-type ityp = [%import: CFI.Rewriter.ityp] [@@deriving show]
-type eident = [%import: CFI.Rewriter.eident] [@@deriving show]
-type ehdr = [%import: CFI.Rewriter.ehdr] [@@deriving show]
-type phdr = [%import: CFI.Rewriter.phdr] [@@deriving show]
-type hash = [%import: CFI.Rewriter.hash] [@@deriving show]
-type isize = [%import: CFI.Rewriter.isize] [@@deriving show]
-type reloc = [%import: CFI.Rewriter.reloc] [@@deriving show]
-type cinst = [%import: CFI.Rewriter.cinst] [@@deriving show]
-type 'a chunk = [%import: 'a CFI.Rewriter.chunk] [@@deriving show]
-type nat = [%import: CFI.Rewriter.nat] [@@deriving show]
-type args = [%import: CFI.Rewriter.args] [@@deriving show]
-type table = [%import: CFI.Rewriter.table] [@@deriving show]
-type data = [%import: CFI.Rewriter.data] [@@deriving show]
+type ityp = [%import: Kotori.ityp] [@@deriving show]
+type eident = [%import: Kotori.eident] [@@deriving show]
+type ehdr = [%import: Kotori.ehdr] [@@deriving show]
+type phdr = [%import: Kotori.phdr] [@@deriving show]
+type hash = [%import: Kotori.hash] [@@deriving show]
+type isize = [%import: Kotori.isize] [@@deriving show]
+type reloc = [%import: Kotori.reloc] [@@deriving show]
+type cinst = [%import: Kotori.cinst] [@@deriving show]
+type 'a chunk = [%import: 'a Kotori.chunk] [@@deriving show]
+type nat = [%import: Kotori.nat] [@@deriving show]
+type args = [%import: Kotori.args] [@@deriving show]
+type table = [%import: Kotori.table] [@@deriving show]
+type data = [%import: Kotori.data] [@@deriving show]
 
 let vdso = List.map (lsr2 % of_int) [0x7ff7ffe320;0x7ff7ffe820;0x7ff7ffe5c0;0x7ff7ffe808;0x7ff7ffe770]
 
 let rec to_nat n =
-  if n = 0 then CFI.Rewriter.O
+  if n = 0 then Kotori.O
   else S (to_nat (n-1))
 
 let default_pol path =
@@ -56,7 +56,7 @@ let make_args ?(pol=Fun.const zero) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax
 
 let global_data ?(pol=Fun.const zero) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) ?(hook=Fun.id) path =
   let^ a = make_args ~pol ~dsets ~runtime ~nrelax path in
-  CFI.Rewriter.rw_hook a hook
+  Kotori.rw_hook a hook
 
 let to_strl s =
   let len = String.length s in

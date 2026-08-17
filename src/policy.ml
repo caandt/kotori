@@ -45,7 +45,7 @@ let rec fill arr i j = function
       fill arr (i+x) (add one j) xs
 
 let irel d =
-  let lens = List.map CFI.Rewriter.chunksize d.chunks in
+  let lens = List.map Kotori.chunksize d.chunks in
   let alen = List.fold_left add zero lens |> toint in
   let arr = Array.make alen zero in
   fill arr 0 d.arg.bi lens;
@@ -55,7 +55,7 @@ let irel d =
     if 0 <= i && i < alen then arr.(i) else i'
 
 let read_policy bpath ppath =
-  let^ d = global_data ~runtime:Runtime.polhook ~hook:CFI.Rewriter.polhook bpath in
+  let^ d = global_data ~runtime:Runtime.polhook ~hook:Kotori.polhook bpath in
   let pol, dsets = read_policy ppath in
   let irel = irel d in
   let pol' x =

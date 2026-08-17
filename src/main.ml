@@ -15,7 +15,7 @@ type config = {
   lr: bool;
 }
 
-let serialize_dat (d:CFI.Rewriter.data) : Yojson.Basic.t =
+let serialize_dat (d:Kotori.data) : Yojson.Basic.t =
   let ji x = `Int (toint x) in
   `Assoc [
     ("bi", ji d.arg.bi);
@@ -64,8 +64,8 @@ let main args =
     | Some p -> Policy.read_policy args.input p
   ), "Error reading policy" in
   let hook =
-    if args.polhook then CFI.Rewriter.polhook
-    else if args.counthook then CFI.Rewriter.counthook
+    if args.polhook then Kotori.polhook
+    else if args.counthook then Kotori.counthook
     else Fun.id in
 
   if args.onlyjson then
@@ -74,7 +74,7 @@ let main args =
     Ok (Option.iter (fun file -> Yojson.Basic.to_file file (serialize_dat dat)) args.json)
   else
     let* pol, dsets = getpol () in
-    let* bin', dat = CFI.Rewriter.elf_rw hook bin runtime pol dsets nrelax args.lr, "Error rewriting" in
+    let* bin', dat = Kotori.elf_rw hook bin runtime pol dsets nrelax args.lr, "Error rewriting" in
     save args bin' dat
 
 let input =
@@ -128,7 +128,7 @@ let config =
   Term.(const make $ input $ output $ abort $ policy $ update_symbols $ polhook $ counthook $ json $ lr)
 let cmd =
   let term = Term.(const main $ config) in
-  let info = Cmd.info "a64-cfi" ~doc:"CFI rewriter for AArch64" in
+  let info = Cmd.info "kotori" ~doc:"CFI rewriter for AArch64" in
   Cmd.v info term
 
 let () = exit (Cmd.eval_result cmd)

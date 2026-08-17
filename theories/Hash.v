@@ -1,5 +1,5 @@
-From Rewriter Require Import Util.
-From Rewriter Require Asm.
+From Kotori Require Import Util.
+From Kotori Require Asm.
 From Stdlib Require Import ZArith Orders Lia ZifyUint63 MSetRBT.
 Import ListNotations.
 

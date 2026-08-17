@@ -41,7 +41,7 @@ static inline long syscall6(long num, long arg0, long arg1, long arg2, long arg3
 
 #define WRITE(x) syscall3(SYS_write, 1, (long)x, sizeof(x)-1)
 #define EXIT(x) do { syscall1(SYS_exit, x); __builtin_unreachable(); } while (0)
-#define DIE(x) do { WRITE("a8 runtime: " x "\n"); EXIT(255); } while (0)
+#define DIE(x) do { WRITE("kotori runtime: " x "\n"); EXIT(255); } while (0)
 #define EXECVE(path, argv, argc) syscall3(SYS_execve, (long)path, argv, argc)
 #define PERSONALITY(x) syscall1(SYS_personality, x)
 #define MMAP(addr, len) syscall6(SYS_mmap, addr, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)

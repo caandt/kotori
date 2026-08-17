@@ -65,8 +65,8 @@
               done
             '';
           };
-        a8 = ocamlPackages.buildDunePackage {
-          pname = "a8";
+        kotori = ocamlPackages.buildDunePackage {
+          pname = "kotori";
           version = "0.0.0";
           src = ./.;
           nativeBuildInputs = [rocq a64-cc];
@@ -95,22 +95,22 @@
           env.OCAMLPATH = "${rocq}/lib";
         };
       in {
-        default = a8;
+        default = kotori;
       }
     );
     devShells = forAllSystems (
       system: let
         pkgs = import nixpkgs {inherit system;};
-        a8 = self.packages.${system}.default;
+        kotori = self.packages.${system}.default;
       in {
         default = pkgs.mkShell {
-          inputsFrom = [a8];
+          inputsFrom = [kotori];
           packages = [
-            a8.coqPackages.coq
-            a8.ocamlPackages.utop
+            kotori.coqPackages.coq
+            kotori.ocamlPackages.utop
             pkgs.perf
           ];
-          env.OCAMLPATH = "${a8.rocq}/lib";
+          env.OCAMLPATH = "${kotori.rocq}/lib";
         };
       }
     );

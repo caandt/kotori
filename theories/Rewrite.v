@@ -1,6 +1,6 @@
 From stdpp Require Import gmap.
-From Rewriter Require Import Util.
-From Rewriter Require Hash Decode Asm.
+From Kotori Require Import Util.
+From Kotori Require Hash Decode Asm.
 Import Decode(ityp(..),decode).
 Import ListNotations.
 

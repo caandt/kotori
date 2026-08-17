@@ -1,5 +1,5 @@
 (* minimal aarch64 decoder *)
-From Rewriter Require Import Util.
+From Kotori Require Import Util.
 
 Variant ityp :=
   | ignore
