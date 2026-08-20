@@ -26,7 +26,7 @@ Coercion issome : option >-> bool.
 
 Fixpoint _mapi {A B} sz acc i f (l: list A) : list B :=
   match l with
-  | nil => rev acc
+  | nil => rev_append acc []
   | a::t => _mapi sz (f i a::acc) (i+sz a) f t
   end.
 Definition mapi {A B} := @_mapi A B (const 1) nil 0.
@@ -37,9 +37,17 @@ Definition maybe_op {A B C} (op: A -> B -> C) x y := x ≫= λ x, y ≫= λ y, S
 Definition mapfold {A B C} op (f:A->B) l b : C := fold_right op b (map f l).
 Definition maybe_map {A B} (f:A->option B) l := mapfold (maybe_op cons) f l (Some nil).
 
-Definition len {A} (l:list A) := of_nat (List.length l).
-Definition ith {A} (l:list A) n := List.nth_error l (to_nat n).
-Extract Constant ith => "(fun l n -> List.nth_opt l (Uint63.to_int2 n |> snd))".
+Definition len{A} (l:list A) :=
+  (fix aux l i :=
+    match l with
+    | [] => i
+    | _::t => aux t (i+1)
+    end) l 0.
+Fixpoint ith{A} (l:list A) n :=
+  match l with
+  | [] => None
+  | a::t => if n =? 0 then Some a else ith t (n-1)
+  end.
 
 Function init n (x:int) {measure to_nat n} :=
   if (n =? 0) then nil else x::init (n-1) x.
@@ -48,14 +56,10 @@ Definition rpad l n x :=
   let len := len l in
   if len <? n then l ++ init (n - len) x else l.
 
-Variant _letintoken := _letintokenIN | _letintokenEXTRACTION.
-Definition _letin{A B} (a:A) (_:{x:_letintoken|x=_letintokenIN}) (b:A->B) (_:{x:_letintoken|x=_letintokenEXTRACTION}) := b a.
 Notation "'let*' x := y 'in' z" :=
-  (_letin y (exist _ _ eq_refl) (fun x => z) (exist _ _ eq_refl))
+  (apply (fun x => z) y)
   (at level 200, x pattern, right associativity,
    format "'[v' 'let*'  x  :=  y  'in'  '/' z ']'").
-Extract Inductive _letintoken => "" ["in" "_ROCQ_LET_IN_EXTRACTION"].
-Extract Inlined Constant _letin => "let _ROCQ_LET_IN_EXTRACTION =".
 
 Axiom print_endline : string -> unit.
 Extract Constant print_endline => "(fun x -> print_endline (Pstring.to_string x))".

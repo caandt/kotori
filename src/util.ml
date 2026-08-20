@@ -61,10 +61,10 @@ let global_data ?(pol=Fun.const zero) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrel
 let to_strl s =
   let len = String.length s in
   let slen = toint Pstring.max_length in
-  let rec aux i acc =
-    if i >= len then List.rev acc
+  let[@tail_mod_cons] rec aux i =
+    if i >= len then []
     else
       let sublen = min slen (len - i) in
       let str = String.sub s i sublen |> Pstring.of_string |> Option.get in
-      aux (i + slen) (str::acc)
-  in aux 0 []
+      str::aux (i + slen)
+  in aux 0

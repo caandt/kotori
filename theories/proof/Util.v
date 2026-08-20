@@ -59,6 +59,3 @@ Proof.
       replace !n with (S !(n - 1)) by lia.
         rewrite IHlst, firstn_cons, nsum_cons. lia.
 Qed.
-
-Lemma len_cons {A} {a:A} {t} : len (a::t) = succ (len t).
-Proof. unfold len. cbn. lia. Qed.
