@@ -296,17 +296,37 @@ Section InstSelection.
 
     | _ => Lst0
     end.
-  Definition emit chunks :=
-    maybe_map (λ c,
-      fold_left (λ a s,
-        match a, s with
-        | Some l, Lst1 a => Some (a::l)
-        | Some l, Lst2 a b => Some (b::a::l)
-        | Some l, Lst3 a b c => Some (c::b::a::l)
-        | _, _ => None
-        end)
-      (c.(cd)) (Some nil) <&> @rev int <&> setd c
-    ) chunks.
+  Definition l3l l3 :=
+    match l3 with
+    | Lst0 => []
+    | Lst1 a => [a]
+    | Lst2 a b => [a;b]
+    | Lst3 a b c => [a;b;c]
+    end.
+  Definition napp l l3 :=
+    match l, l3 with
+    | [], _ => []
+    | _, Lst0 => []
+    | _, Lst1 a => a::l
+    | _, Lst2 a b => b::a::l
+    | _, Lst3 a b c => c::b::a::l
+    end.
+  Definition nconcat l :=
+    rev_append (
+      fold_left napp (tl l) (
+        match l with
+        | Lst1 a::_ => [a]
+        | Lst2 a b::_ => [b;a]
+        | Lst3 a b c::_ => [c;b;a]
+        | _ => []
+        end
+      )
+    ) [].
+  Definition notnil c := if c.(cd (list int)) then false else true.
+  Definition nonenil l := fold_left andb (map notnil l) true.
   Definition rw2 :=
-    emit (chunkmapi rel isel d.(chunks)).
+    let c := chunkmapi rel isel d.(chunks) in
+    let r := map (λ c, setd c (nconcat c.(cd))) c in
+    assert nonenil r;
+    return r.
 End InstSelection.
