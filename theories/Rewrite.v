@@ -75,9 +75,9 @@ Record data := {
   devs: list int;
 }.
 Definition setd{A B} (c: chunk A) (d: B) := C c.(cn) c.(ci) c.(ct) (d).
-Definition chunkmap{A B} (f: chunk A -> B) l := map (λ c, setd c (f c)) l.
+Notation chunkmap f l := (map (λ c, setd c (f c)) l).
 Definition instmapi{A} := @_mapi _ A instsize [].
-Definition chunkmapi{A} rel f := chunkmap (λ c, @instmapi A (rel c.(ci)) f c.(cd)).
+Notation chunkmapi rel f l := (chunkmap (λ c, instmapi (rel c.(ci)) f c.(cd)) l).
 Section ChunkGeneration.
   Variable a : args.
   Notation pol := a.(pol).
@@ -87,9 +87,9 @@ Section ChunkGeneration.
   Definition stage1 := mapi (λ idx n, C n (bi + idx) (decode n) ()) a.(code).
   Section InstRewriter.
     Variable c : chunk ().
-    Notation n := (c.(cn)).
-    Notation i := (c.(ci)).
-    Notation t := (c.(ct)).
+    Notation n := c.(cn).
+    Notation i := c.(ci).
+    Notation t := c.(ct).
     Notation lbl := (pol c.(ci)).
     Notation dset := (ith dsets lbl orelse []).
     Definition rw_indirect rn n :=
@@ -129,17 +129,18 @@ Section ChunkGeneration.
             rw_indirect rn n
       end.
   End InstRewriter.
-  Definition stage2 := chunkmap rw_inst.
+  Definition stage2 l := chunkmap rw_inst l.
   Section Relaxation.
-    Definition chunksize c := nsum (map_single instsize c.(cd)).
+    Definition chunksize c := isum (map_single instsize c.(cd)).
     Definition makerel chunks :=
       let lens := map chunksize chunks in
       let csum := csum bi' lens in
       let rel x := csum (x - bi) in
       let ei := bi + len chunks in
-      (λ x, if (bi <=? x) && (x <? ei)
-           then rel x
-           else x, csum).
+      let ai := pad_to (csum (len chunks)) 10 in
+      (λ x, if (bi <=? x) && (x <? ei) then rel x
+            else if (bi' <=? x) && (x <? ai) then ai
+            else x, ai).
     Definition fits bw n := (lesb (-1<<(bw-1)) n) && (ltsb n (1<<(bw-1))).
     Definition relaxi rel i' inst :=
       match inst with
@@ -169,9 +170,9 @@ Section ChunkGeneration.
       Hash.find_hash D D' <&> λ h,
       (h, Hash.compute_table_m h ai D D')
     ) dsets <&> λ l,
-      rev (fst (fold_left (λ '(acc, ti) '(h, tbl),
+      rev_append (fst (fold_left (λ '(acc, ti) '(h, tbl),
         ({|tblhash:=h; tblcontent:=tbl; tblidx:=ti|}::acc, ti + 2 * len tbl)
-      ) l ([], bti))).
+      ) l ([], bti))) [].
   Definition indirect_reg{A} c :=
     match c.(ct A) with
     | BR rn | BLR rn | RET rn => Some rn
@@ -191,8 +192,7 @@ Section ChunkGeneration.
         else idx::next_cum_dev::deviations (idx+1) next_cum_dev t
     end.
   Definition makedata chunks :=
-    let '(rel, csum) := makerel chunks in
-    let ai := pad_to (csum (len a.(code))) 10 in
+    let '(rel, ai) := makerel chunks in
     let bti := pad_to (ai + a.(rtlen)>>2) 10 in
     let rets := retlist chunks in
     let devs := deviations 0 0 (map chunksize chunks) in

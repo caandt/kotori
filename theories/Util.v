@@ -66,7 +66,7 @@ Extract Constant print_endline => "(fun x -> print_endline (Pstring.to_string x)
 Axiom print_int : int -> unit.
 Extract Constant print_int => "(fun x -> print_int (Int64.to_int (Uint63.to_int64 x)))".
 
-Definition nsum lst := fold_left add lst 0.
+Definition isum lst := fold_left add lst 0.
 Fixpoint csum sum lst n :=
   match lst with
   | nil => sum
@@ -95,11 +95,12 @@ Definition padding x b := (1 << b - x land (1 << b - 1)) land (1 << b - 1).
 Definition pad_to x b := x + padding x b.
 
 (* copy of map, to avoid using parmap extraction *)
-Fixpoint map_single {A B} (f:A->B) l :=
-  match l with
-  | nil => nil
-  | a::t => f a::map_single f t
-  end.
+Definition map_single {A B} (f:A->B) :=
+  (fix map l :=
+    match l with
+    | [] => []
+    | a::t => f a::map t
+    end).
 
 Global Instance int_eq_dec : EqDecision int.
 Proof.
