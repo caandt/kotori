@@ -37,14 +37,17 @@ Ltac hintro H :=
   end.
 Ltac hintros H :=
   repeat hintro H.
-Ltac splitif :=
-  match goal with
-    |- context[if ?a then _ else _] => destruct a eqn:?IF
-  end.
-Tactic Notation "splitif" "in" constr(H) :=
-  match type of H with
-    context[if ?a then _ else _] => destruct a eqn:?IF
-  end.
+Ltac subst' H := rewrite H in *; clear H.
+Ltac subst'' H := rewrite <-H in *; clear H.
+Ltac eqapply H := eapply ZifyClasses.eq_iff;[|exact H];repeat f_equal.
+(* Ltac splitif := *)
+(*   match goal with *)
+(*     |- context[if ?a then _ else _] => destruct a eqn:?IF *)
+(*   end. *)
+(* Tactic Notation "splitif" "in" constr(H) := *)
+(*   match type of H with *)
+(*     context[if ?a then _ else _] => destruct a eqn:?IF *)
+(*   end. *)
 Ltac tif := match goal with |- context[if ?a then _ else _] => replace a with true;[|symmetry] end.
 Tactic Notation "tif" "in" constr(H) := match type of H with context[if ?a then _ else _] => replace a with true in H;[|symmetry] end.
 Ltac fif := match goal with |- context[if ?a then _ else _] => replace a with false;[|symmetry] end.
@@ -55,16 +58,18 @@ Lemma add_0_l: forall i, 0 + i = i. Proof. lia. Qed.
 Lemma add_0_r: forall i, i + 0 = i. Proof. lia. Qed.
 Lemma ifls: forall l a, fold_left add l a = a + fold_left add l 0.
 Proof. induction l; intro; simpl. lia. rewrite IHl, (IHl (_ + _)). lia. Qed.
-Lemma nfls: forall l a, fold_left plus l a = plus a (fold_left plus l O).
-Proof. induction l; intro; simpl. lia. rewrite IHl, (IHl a). lia. Qed.
+Lemma nfls: forall l a, fold_left N.add l a = N.add a (fold_left N.add l N0).
+Proof. induction l; intro; simpl. lia. rewrite IHl, (IHl (N.add _ _)). lia. Qed.
 Lemma isum_cons: ∀ t a, isum (a::t) = a + isum t.
 Proof. unfold isum. intros. simpl. rewrite ifls. lia. Qed.
-Definition nsum lst := List.fold_left plus lst O.
-Lemma nsum_cons: ∀ t a, nsum (a::t) = (a + nsum t)%nat.
+Definition nsum lst := List.fold_left N.add lst N0.
+Lemma nsum_cons: ∀ t a, nsum (a::t) = (a + nsum t)%N.
 Proof. unfold nsum. intros. simpl. rewrite nfls. lia. Qed.
 
 Definition toNat x := to_nat x.
 Definition ofNat x := of_nat x.
+Notation "♮ x" := (toNat x) (at level 2, format "♮ x") : nat_scope.
+Notation "♯ x" := (ofNat x) (at level 1, format "♯ x") : nat_scope.
 #[refine]
 Global Instance Op_toNat: ZifyClasses.UnOp toNat := { TUOp x := x }.
 Proof.
@@ -79,15 +84,32 @@ Proof.
 Defined.
 Add Zify UnOp Op_toNat.
 Add Zify UnOp Op_ofNat.
-Notation "♮ x" := (toNat x) (at level 2, format "♮ x").
-Notation "♯ x" := (ofNat x) (at level 1, format "♯ x").
+Definition toN x := Z.to_N (to_Z x).
+Definition ofN x := of_Z (Z.of_N x).
+#[refine]
+Global Instance Op_toN: ZifyClasses.UnOp toN := { TUOp x := x }.
+Proof.
+  intros. setoid_rewrite Z2N.id.
+    reflexivity.
+    apply to_Z_bounded.
+Defined.
+#[refine]
+Global Instance Op_ofN: ZifyClasses.UnOp ofN := { TUOp x := Z.modulo x 9223372036854775808 }.
+Proof.
+  intros. now setoid_rewrite of_Z_spec.
+Defined.
+Add Zify UnOp Op_toN.
+Add Zify UnOp Op_ofN.
+Notation "♮ x" := (toN x) : N_scope.
+Notation "♯ x" := (ofN x) : N_scope.
+Notation "♭ x" := (N.to_nat x) (at level 2, format "♭ x") : N_scope.
 Notation "A ⇀ B" := (A → option B) (at level 100).
 Lemma csum_def {lst sum n} : csum sum lst n = sum + isum (firstn ♮n lst).
 Proof.
   revertall. induction lst; intros.
     rewrite firstn_nil. cbv. lia.
-    simpl. splitif.
-      rewrite (eqb_correct n 0 IF), firstn_O. cbv. lia.
+    simpl. case_match eqn:N.
+      rewrite (eqb_correct n 0 N), firstn_O. cbv. lia.
       replace ♮n with (S ♮(n - 1)) by lia.
         rewrite IHlst, firstn_cons, isum_cons. lia.
 Qed.
@@ -107,7 +129,7 @@ Lemma ith_nth_error:
 Proof.
   induction l; intro.
     now rewrite nth_error_nil.
-    simpl. splitif.
+    simpl. case_match.
       now replace ♮n with O by lia.
       now replace ♮n with (S ♮(n - 1)) by lia.
 Qed.

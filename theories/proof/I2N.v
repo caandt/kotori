@@ -4,22 +4,6 @@ From Picinae Require Import theory.
 
 Open Scope uint63.
 
-Definition toN i := Z.to_N (to_Z i).
-Definition ofN n := of_Z (Z.of_N n).
-#[refine]
-Global Instance Op_toN: ZifyClasses.UnOp toN := { TUOp x := x }.
-Proof.
-  intros. setoid_rewrite Z2N.id.
-    reflexivity.
-    apply to_Z_bounded.
-Defined.
-#[refine]
-Global Instance Op_ofN: ZifyClasses.UnOp ofN := { TUOp x := Z.modulo x 9223372036854775808 }.
-Proof.
-  intros. now setoid_rewrite of_Z_spec.
-Defined.
-Add Zify UnOp Op_toN.
-Add Zify UnOp Op_ofN.
 Module notations.
   Notation "% n" := (N.modulo n (2 ^ 63)%N) (at level 1, format "% n") : N_scope.
   Notation "% n" := (Nat.modulo n (Z.to_nat wB)) (at level 1, format "% n") : nat_scope.
@@ -29,8 +13,8 @@ Import notations.
 Module I2N.
 Section I2N.
   Variable i j: int.
-  Notation n := (toN i).
-  Notation m := (toN j).
+  Notation n := ♮i.
+  Notation m := ♮j.
 
   Lemma id: ofN n = i. Proof. lia. Qed.
   Lemma inj: n = m -> i = j. Proof. lia. Qed.
