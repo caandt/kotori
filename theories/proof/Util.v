@@ -1,3 +1,4 @@
+From stdpp Require Import list.
 From Kotori Require Export Util.
 From Stdlib Require Import ZArith.
 Global Set Printing Projections.
@@ -7,6 +8,7 @@ Ltac unfold_first x H :=
   | ?a _ => unfold_first a H
   | _ => unfold x in H; simpl in H
   end.
+
 Ltac so H :=
   match type of H with
   | (assert _; _) = Some _ =>
@@ -40,14 +42,13 @@ Ltac hintros H :=
 Ltac subst' H := rewrite H in *; clear H.
 Ltac subst'' H := rewrite <-H in *; clear H.
 Ltac eqapply H := eapply ZifyClasses.eq_iff;[|exact H];repeat f_equal.
-(* Ltac splitif := *)
-(*   match goal with *)
-(*     |- context[if ?a then _ else _] => destruct a eqn:?IF *)
-(*   end. *)
-(* Tactic Notation "splitif" "in" constr(H) := *)
-(*   match type of H with *)
-(*     context[if ?a then _ else _] => destruct a eqn:?IF *)
-(*   end. *)
+Tactic Notation "lia" "with" constr(H) := pose proof H; lia.
+Tactic Notation "lia" "with" constr(p) "by" tactic(rw) :=
+  let H := fresh in pose proof p as H; revert H;
+  match goal with |- ?T -> ?G =>
+    let A := fresh in
+    remember G as A; rw; subst A
+  end; lia.
 Ltac tif := match goal with |- context[if ?a then _ else _] => replace a with true;[|symmetry] end.
 Tactic Notation "tif" "in" constr(H) := match type of H with context[if ?a then _ else _] => replace a with true in H;[|symmetry] end.
 Ltac fif := match goal with |- context[if ?a then _ else _] => replace a with false;[|symmetry] end.

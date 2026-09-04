@@ -3,6 +3,7 @@ From stdpp Require Import list_tactics.
 From Kotori Require Import proof.Util proof.I2N Rewrite.
 From RecordUpdate Require Import RecordUpdate.
 
+Notation "C[ d ]" := (C 0 0 Decode.ignore d) (format "C[ d ]").
 Definition cons1{A} (a:A) t : a::t=[a]++t := eq_refl.
 Lemma mapi_acc{A B sz} {f: int -> A -> B}:
   forall l i acc, _mapi sz acc i f l = rev acc ++ _mapi sz [] i f l.
@@ -98,24 +99,37 @@ Proof.
     now rewrite firstn_nil.
     destruct n; simpl. cbn. lia. rewrite !nsum_cons. specialize (IHl n). lia.
 Qed.
+Lemma findchunk_in':
+  forall c b n m d
+    (NE: Forall Nonempty c)
+    (N: (n < length c)%nat)
+    (M: m < nlen (nth n c C[nil]).(cd)),
+    findchunk c b (b + nsum (firstn n (cmap nlen c)) + m) = Some (nth n c d).
+Proof.
+  induction c; intros.
+    easy.
+    destruct n; simpl in *.
+    - tif. reflexivity.
+        rewrite nsum_nil. lia.
+    - fif. rewrite nsum_cons, N.add_assoc, IHc with (d:=d).
+        reflexivity.
+        by inversion NE.
+        lia.
+        lia.
+      rewrite nsum_cons, N.add_assoc. lia.
+Qed.
 Lemma findchunk_in:
   forall c b n d
     (NE: Forall Nonempty c)
     (N: (n < length c)%nat),
     findchunk c b (b + nsum (firstn n (cmap nlen c))) = Some (nth n c d).
 Proof.
-  induction c; intros.
-    easy.
-    destruct n; simpl.
-    - tif.
-        reflexivity. rewrite nsum_nil. inversion NE. unfold Nonempty in H1.
-        destruct a.(cd). done. cbn. lia.
-    - fif. rewrite nsum_cons, N.add_assoc, IHc with (d:=d).
-        reflexivity.
-        by inversion NE.
-        simpl in N. lia.
-      rewrite nsum_cons, N.add_assoc. lia.
+  intros. erewrite <-(N.add_0_r (_ + _)), findchunk_in'; auto.
+  rewrite Forall_forall in NE. specialize (NE _ (nth_In c C[nil] N)).
+  unfold Nonempty in NE.
+  destruct cd. easy. simpl. lia.
 Qed.
+
 Lemma nconcat_concat:
   forall l (L: Forall (.≠ Lst0) l),
     nconcat l = concat (map l3l l).
@@ -198,6 +212,66 @@ Proof.
        end; now subst. }
 Qed.
 
+Definition change_sz i sz :=
+  match i with
+  | Iimm _ r imm => Iimm sz r imm
+  | Ib _ t d => Ib sz t d
+  | _ => i
+  end.
+Definition instsz i :=
+  match i with
+  | Inum _ => Sz1
+  | Ihsh _ _ => Sz2
+  | Iimm sz _ _ | Ib sz _ _ => sz
+  end.
+Definition change_szs c c' :=
+  setd c (zip_with change_sz c.(cd) (map instsz c'.(cd))).
+Lemma relaxi_same:
+  forall rel i' inst,
+  exists sz, relaxi rel i' inst = change_sz inst sz.
+Proof.
+  intros. unfold relaxi, change_sz.
+  repeat case_match; eexists; auto; constructor.
+Qed.
+Lemma relax_same:
+  forall a cs,
+  relax a cs = zip_with change_szs cs (relax a cs).
+Proof.
+  intros. unfold relax. destruct makerel.
+  induction cs.
+    easy.
+    simpl. rewrite IHcs at 1. unfold change_szs. repeat f_equal.
+    unfold instmapi. generalize (i a0.(ci)).
+    induction cd.
+      easy.
+      cbn. intro. rewrite mapi_acc. simpl. f_equal.
+  destruct (relaxi_same i i1 a1). rewrite H.
+  by destruct x, a1. apply IHy.
+Qed.
+Lemma change_szs_same:
+  forall c, change_szs c c = c.
+Proof.
+  destruct c. unfold change_szs, setd. cbn. f_equal.
+  induction cd. easy. cbn. f_equal; by destruct a.
+Qed.
+Lemma relaxn_same:
+  forall n a cs,
+  Nat.iter n (relax a) cs = zip_with change_szs cs (Nat.iter n (relax a) cs).
+Proof.
+  induction n; simpl; intros.
+  - induction cs; simpl; try rewrite change_szs_same; by f_equal.
+  - rewrite relax_same at 1. rewrite IHn at 1.
+    remember (Nat.iter _ _ _). unfold relax. destruct makerel. clear.
+    revert cs. induction y; destruct cs; auto.
+    simpl. rewrite IHy. f_equal.
+    unfold change_szs, setd. simpl. f_equal. clear.
+    unfold instmapi. generalize (i a.(ci)), c.(cd). induction cd.
+    + by destruct l.
+    + intros. rewrite mapi_cons. simpl.
+      destruct l; auto; simpl.
+      rewrite IHy; by destruct c0.
+Qed.
+
 Lemma isum_bound:
   forall max l
     (B: Forall (λ x, x <=? max = true) l)
@@ -272,9 +346,9 @@ Section rw2.
     forall n c, nth_error cnks n = Some c -> c.(ci) = bi + (♯n)%nat.
   Proof.
     intros n c N. rewrite chunk_equiv in N.
-    apply nth_error_nth with (d:=C 0 0 Decode.ignore []) in N as NTH.
+    apply nth_error_nth with (d:=C[[]]) in N as NTH.
     rewrite <-NTH, <-(map_nth ci), map_map in *. simpl.
-    change 0 with ((C 0 0 Decode.ignore (@nil cinst)).(ci)).
+    change 0 with C[@nil cinst].(ci).
     erewrite map_nth, CORD; auto. apply nth_error_nth'.
     apply nth_error_Some. intro. by rewrite nth_error_map, H in N.
   Qed.
@@ -309,9 +383,9 @@ Section rw2.
           easy.
           simpl. rewrite isum_cons. pose proof (isum_bound 100 (map_single instsize y)) as B.
           rewrite nlen_length, length_map in B. hintros B.
-            pose (instsizeb c). lia.
+            lia with (instsizeb c).
             simpl in *. lia.
-            rewrite Forall_map, Forall_forall. intros. pose (instsizeb x). lia.
+            rewrite Forall_map, Forall_forall. intros. lia with (instsizeb x).
   Qed.
   Lemma irel_rel:
     forall i, irel ♮(rel i) ∈ ♮i, ♮ai.
@@ -321,16 +395,16 @@ Section rw2.
     assert (♮bi' + nsum (cmap nlen cnks) ≤ ♮ai) as A; subst' H1.
     { etransitivity; [|apply intleb_natle, NN].
       rewrite csum_def, firstn_all2, isumn, correct_lengths, !map_map.
-        pose proof NO. rewrite correct_lengths, map_map in H. lia.
-        rewrite len_length, length_map. pose proof maxchunks. rewrite nlen_length in H. lia. }
+        lia with NO by rewrite correct_lengths, map_map.
+        rewrite len_length, length_map. lia with maxchunks by rewrite nlen_length. }
     repeat case_match.
-    - rewrite csum_def, isumn, <-firstn_map, <-correct_lengths.
-      rewrite len_length in H.
-      rewrite I2N.inj_add, to_of_N, N.Div0.add_mod_idemp_r, N.mod_small.
-      rewrite findchunk_in with (d:=C 0 0 Decode.ignore []). simpl.
+    - rewrite len_length in H.
+      rewrite csum_def, isumn, <-firstn_map, <-correct_lengths,
+        I2N.inj_add, to_of_N, N.Div0.add_mod_idemp_r, N.mod_small,
+        findchunk_in with (d:=C[nil]). simpl.
       erewrite nth_ci; [|apply nth_error_nth'; rewrite num_cnks; lia].
-      left. lia. apply nonempty_cnks. rewrite num_cnks. lia.
-      pose proof (nsum_firstn_le (cmap nlen cnks) ♮(i-bi)). lia.
+      left. lia. apply nonempty_cnks. lia with num_cnks.
+      lia with (nsum_firstn_le (cmap nlen cnks) ♮(i-bi)).
     - rewrite findchunk_out; [now right | easy | lia].
     - rewrite findchunk_out; [now left | easy | lia].
   Qed.
