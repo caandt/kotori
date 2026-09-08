@@ -52,28 +52,6 @@ Definition ADR i imm Rd :=
 Definition ADRP i imm Rd :=
   let dist := asr imm 12 - i>>10 in
   bounded dist 21 <&> λ imm21, Encode.ADRP (imm21:[0,2]) (imm21:[2,19]) Rd.
-Function b16s imm hw {measure (λ x, to_nat (4 - x)) hw} :=
-  if (hw <? 4)
-  then let rest := b16s (imm >> 16) (succ hw) in
-       if (imm land 0xffff =? 0)
-       then rest
-       else (imm land 0xffff, hw)::rest
-  else nil.
-Proof. all: lia. Defined.
-Definition b16c imm :=
-  max 1 (4 - (imm land 0x7fff_0000_0000_0000 =? 0)
-  - (imm land 0xffff_0000_0000 =? 0)
-  - (imm land 0xffff_0000 =? 0)
-  - (imm land 0xffff =? 0))%uint63.
-Definition MOV_small imm Rd :=
-  Encode.MOVZ 1 0 imm Rd.
-Definition MOV imm Rd :=
-  match b16s imm 0 with
-  | nil => Encode.MOVZ 1 0 0 Rd::nil
-  | (imm, sf)::t =>
-      Encode.MOVZ 1 sf imm Rd
-      ::map_single (λ '(imm, sf), Encode.MOVK 1 sf imm Rd) t
-  end.
 Definition UDF := 0.
 Definition NOP := 0xd503201f.
 Definition UBFX is64 Rd Rn lsb width :=
