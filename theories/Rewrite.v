@@ -26,14 +26,14 @@ Variant list3 :=
   | Lst3 : int -> int -> int -> _.
 Variant cinst :=
   | Inum (n: int)
-  | Iimm (sz:isize) (r: int) (imm: reloc)
+  | Iimm (relax: bool) (sz:isize) (r: int) (imm: reloc)
   | Ihsh (r lbl: int)
   | Ib   (sz:isize) (t: ityp) (d: reloc).
 Definition instsize inst :=
   match inst with
   | Inum _ => 1
   | Ihsh _ _ => 2
-  | Iimm sz _ _
+  | Iimm _ sz _ _
   | Ib sz _ _ => intsize sz
   end.
 Record chunk A := C {
@@ -92,41 +92,46 @@ Section ChunkGeneration.
     Notation t := c.(ct).
     Notation lbl := (pol c.(ci)).
     Notation dset := (ith dsets lbl orelse []).
-    Definition rw_indirect rn n :=
+    Definition rw_indirect rn epil :=
       match dset with
       | [] => [Ib Sz1 (BL 0) (Rrt 0)]
-      | [d] => [Iimm Sz3 rn (Raddr d); Inum n]
+      | [d] => Iimm true Sz3 rn (Raddr d)::epil
       | _ =>
           let rtmp := b2i (is_zero rn) in
-          [ Inum (Asm.PUSH2 rtmp 31)
-          ; Ihsh rn lbl
-          ; Iimm Sz2 rtmp (Rtbl lbl)
-          ; Inum (Asm.LDR_r64 rn rtmp rn)
-          ; Inum (Asm.POP2 rtmp 31)
-          ; Inum n ]
+          Inum (Asm.PUSH2 rtmp 31)::
+          Ihsh rn lbl::
+          Iimm true Sz2 rtmp (Rtbl lbl)::
+          Inum (Asm.LDR_r64 rn rtmp rn)::
+          Inum (Asm.POP2 rtmp 31)::
+          epil
       end.
     Definition rw_inst :=
       match t with
       | ignore => [Inum n]
       | invalid => [Ib Sz1 (BL 0) (Rrt 0)]
-      | ADR imm rd => [Iimm Sz2 rd (Rimm ((i<<2)+sext imm 21))]
-      | ADRP imm rd => [Iimm Sz3 rd (Rimm (clearlow12 (i<<2)+sext (imm<<12) 33))]
+      | ADR imm rd => [Iimm true Sz2 rd (Rimm ((i<<2)+sext imm 21))]
+      | ADRP imm rd => [Iimm true Sz3 rd (Rimm (clearlow12 (i<<2)+sext (imm<<12) 33))]
       | Bcond imm _ | CBZ _ _ imm _ => [Ib Sz2 t (Raddr (i+sext imm 19))]
       | B imm => [Ib Sz1 t (Raddr (i+sext imm 26))]
       | BL imm =>
           if a.(orig_lr) then
-            [ Iimm Sz3 30 (Rimm ((i+1)<<2))
-            ; Ib Sz1 (B imm) (Raddr (i+sext imm 26)) ]
+            [ Inum (0x14000004)
+            ; Iimm false Sz2 30 (Rimm ((i+1)<<2))
+            ; Ib Sz1 (B imm) (Raddr (i+sext imm 26))
+            ; Inum (0x97fffffd) ]
           else
             [Ib Sz1 t (Raddr (i+sext imm 26))]
       | TBZ _ _ _ imm _ => [Ib Sz2 t (Raddr (i+sext imm 14))]
-      | BR rn | RET rn => rw_indirect rn n
+      | BR rn | RET rn => rw_indirect rn [Inum n]
       | BLR rn =>
           if a.(orig_lr) then
-            Iimm Sz3 30 (Rimm ((i+1)<<2))::
-            rw_indirect rn (n lxor (1<<21))
+            rw_indirect rn
+              [ Inum (0x14000004)
+              ; Iimm false Sz2 30 (Rimm ((i+1)<<2))
+              ; Inum (n lxor (1<<21))
+              ; Inum (0x97fffffd) ]
           else
-            rw_indirect rn n
+            rw_indirect rn [Inum n]
       end.
   End InstRewriter.
   Definition stage2 l := chunkmap rw_inst l.
@@ -144,12 +149,12 @@ Section ChunkGeneration.
     Definition fits bw n := (lesb (-1<<(bw-1)) n) && (ltsb n (1<<(bw-1))).
     Definition relaxi rel i' inst :=
       match inst with
-      | Iimm Sz1 _ _ => inst
-      | Iimm _ r (Rimm imm) =>
-          if (clearlow12 imm =? imm) && (fits 21 (asr imm 12-i'>>10)) then Iimm Sz1 r (Rimm imm)
-          else if fits 21 (imm-i'<<2) then Iimm Sz1 r (Rimm imm)
-          else if fits 21 (asr imm 12-i'>>10) then Iimm Sz2 r (Rimm imm)
-          else if imm <? 1 << 32 then Iimm Sz2 r (Rimm imm)
+      | Iimm true Sz1 _ _ => inst
+      | Iimm true _ r (Rimm imm) =>
+          if (clearlow12 imm =? imm) && (fits 21 (asr imm 12-i'>>10)) then Iimm true Sz1 r (Rimm imm)
+          else if fits 21 (imm-i'<<2) then Iimm true Sz1 r (Rimm imm)
+          else if fits 21 (asr imm 12-i'>>10) then Iimm true Sz2 r (Rimm imm)
+          else if imm <? 1 << 32 then Iimm true Sz2 r (Rimm imm)
           else inst
       | Ib Sz2 t (Raddr d) =>
           let bw := match t with
@@ -217,7 +222,7 @@ Section ChunkGeneration.
       ; Inum c.(cn A) ].
     Definition polhook chunks :=
       let rets := retlist chunks in
-      let f c := [Iimm Sz2 16 (Rimm (index rets c.(ci) 0 orelse 0))] in
+      let f c := [Iimm true Sz2 16 (Rimm (index rets c.(ci) 0 orelse 0))] in
       chunkmap (replace_indirect (call_hook f)) chunks.
     Definition counthook chunks :=
       chunkmap (replace_indirect (call_hook (const nil))) chunks.
@@ -248,11 +253,11 @@ Section InstSelection.
         | _ => Lst0
         end
 
-    | Iimm Sz1 r reloc =>
+    | Iimm _ Sz1 r reloc =>
         let imm := resolve reloc in
         let asm := if clearlow12 imm =? imm then Asm.ADRP else Asm.ADR in
         (Lst1 <$> asm i' imm r) orelse Lst0
-    | Iimm Sz2 r reloc =>
+    | Iimm _ Sz2 r reloc =>
         let imm := resolve reloc in
         if fits 21 (asr imm 12-i'>>10) then
           Lst2 (Asm.ADRP i' imm r orelse Asm.UDF)
@@ -261,7 +266,7 @@ Section InstSelection.
           Lst2 (Asm.Encode.MOVZ 1 1 (imm >> 16) r)
                (Asm.Encode.MOVK 1 0 (imm land 0xffff) r)
         else Lst0
-    | Iimm Sz3 r reloc =>
+    | Iimm _ Sz3 r reloc =>
         let imm := resolve reloc in
         if i' >> 46 =? imm >> 48 then
           Lst3 (Asm.ADRP (i' land (0xffff_ffff>>2)) (imm land 0xffff_ffff) r orelse Asm.UDF)

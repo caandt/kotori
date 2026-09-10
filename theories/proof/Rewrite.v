@@ -214,7 +214,7 @@ Qed.
 
 Definition change_sz i sz :=
   match i with
-  | Iimm _ r imm => Iimm sz r imm
+  | Iimm relax _ r imm => Iimm relax sz r imm
   | Ib _ t d => Ib sz t d
   | _ => i
   end.
@@ -222,7 +222,7 @@ Definition instsz i :=
   match i with
   | Inum _ => Sz1
   | Ihsh _ _ => Sz2
-  | Iimm sz _ _ | Ib sz _ _ => sz
+  | Iimm _ sz _ _ | Ib sz _ _ => sz
   end.
 Definition change_szs c c' :=
   setd c (zip_with change_sz c.(cd) (map instsz c'.(cd))).
