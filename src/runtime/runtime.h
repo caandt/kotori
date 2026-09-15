@@ -8,6 +8,9 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <linux/fs.h>
+#include <linux/seccomp.h>
+#include <linux/filter.h>
+#include <linux/prctl.h>
 
 #define BASE 0x8a000000
 #define BASE2 0xea8a0000
@@ -31,6 +34,11 @@ static inline long syscall3(long num, long arg0, long arg1, long arg2) {
 static inline long syscall4(long num, long arg0, long arg1, long arg2, long arg3) {
   REG(8, num); REGa(0); REGa(1); REGa(2); REGa(3);
   asm volatile ("svc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x3), "r"(x8) : "memory");
+  return x0;
+}
+static inline long syscall5(long num, long arg0, long arg1, long arg2, long arg3, long arg4) {
+  REG(8, num); REGa(0); REGa(1); REGa(2); REGa(3); REGa(4);
+  asm volatile ("svc #0" : "+r"(x0) : "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x8) : "memory");
   return x0;
 }
 static inline long syscall6(long num, long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {

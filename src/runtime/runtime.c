@@ -35,6 +35,9 @@ void cfi_abort() {
 #ifdef A8_PRELOAD_REL
   #include "preload_rel.c"
 #endif
+#ifdef A8_SIGNAL
+  #include "seccomp.c"
+#endif
 
 void init(long argv, long envp) {
 #ifdef A8_NO_ASLR
@@ -48,5 +51,8 @@ void init(long argv, long envp) {
 #endif
 #ifdef A8_PRELOAD_REL
   init_rel();
+#endif
+#ifdef A8_SIGNAL
+  install_filter();
 #endif
 }
