@@ -3,7 +3,6 @@ import itertools
 import mmap
 import struct
 import argparse
-import code
 from pprint import pprint
 from pathlib import Path
 from collections import defaultdict
@@ -151,8 +150,8 @@ if __name__ == '__main__':
     j = Data(args.json) if args.json else None
     p = read_data(args.pol) if args.pol else None
     try:
-        import _pyrepl.main
-        _pyrepl.main.interactive_console()
+        import _pyrepl.main, __main__
+        _pyrepl.main.interactive_console(__main__)
     except ImportError:
         import code
         code.interact(local=globals())
