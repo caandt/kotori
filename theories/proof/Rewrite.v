@@ -3,7 +3,7 @@ From stdpp Require Import list_tactics.
 From Kotori Require Import proof.Util proof.I2N Rewrite.
 From RecordUpdate Require Import RecordUpdate.
 
-Notation "C[ d ]" := (C 0 0 Decode.ignore d) (format "C[ d ]").
+Notation "C[ d ]" := (C 0 0 Decode.ignore (Pfallthru true) d) (format "C[ d ]").
 Definition cons1{A} (a:A) t : a::t=[a]++t := eq_refl.
 Lemma mapi_acc{A B sz} {f: int -> A -> B}:
   forall l i acc, _mapi sz acc i f l = rev acc ++ _mapi sz [] i f l.

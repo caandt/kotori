@@ -36,22 +36,28 @@ Definition instsize inst :=
   | Iimm _ sz _ _
   | Ib sz _ _ => intsize sz
   end.
+Variant poltyp :=
+  | Pfallthru (ft: bool)
+  | Pdirect (ft: bool) (i: int)
+  | Pindirect (lbl: int).
 Record chunk A := C {
   cn: int;
   ci: int;
   ct: ityp;
+  cp: poltyp;
   cd: A;
 }.
 Notation chunklist A := (list (chunk A)).
 Arguments cn {_}.
 Arguments ci {_}.
 Arguments ct {_}.
+Arguments cp {_}.
 Arguments cd {_}.
 Arguments C {_}.
 
 Record args := {
   code: list int;
-  pol: int → int;
+  pol: int → poltyp;
   dsets: list (list int);
   bi: int;
   bi': int;
@@ -74,27 +80,35 @@ Record data := {
   rets: list int;
   devs: list int;
 }.
-Definition setd{A B} (c: chunk A) (d: B) := C c.(cn) c.(ci) c.(ct) (d).
+Definition setd{A B} (c: chunk A) (d: B) := C c.(cn) c.(ci) c.(ct) c.(cp) d.
 Notation chunkmap f l := (map (λ c, setd c (f c)) l).
 Definition instmapi{A} := @_mapi _ A instsize [].
 Notation chunkmapi rel f l := (chunkmap (λ c, instmapi (rel c.(ci)) f c.(cd)) l).
+Definition permissive_pol code bi p i :=
+  (ith code (i - bi) <&> λ n,
+    match decode n with
+    | Bcond imm _ | CBZ _ _ imm _ => Pdirect true (i + sext imm 19)
+    | B imm | BL imm => Pdirect false (i + sext imm 26)
+    | TBZ _ _ _ imm _ => Pdirect true (i + sext imm 14)
+    | BR _ | RET _ | BLR _ => Pindirect (p i)
+    | _ => Pfallthru true
+    end) orelse (Pfallthru false).
 Section ChunkGeneration.
   Variable a : args.
   Notation pol := a.(pol).
   Notation dsets := a.(dsets).
   Notation bi := a.(bi).
   Notation bi' := a.(bi').
-  Definition stage1 := mapi (λ idx n, C n (bi + idx) (decode n) ()) a.(code).
+  Definition stage1 := mapi (λ idx n, C n (bi + idx) (decode n) (pol (bi + idx)) ()) a.(code).
   Section InstRewriter.
     Variable c : chunk ().
     Notation n := c.(cn).
     Notation i := c.(ci).
     Notation t := c.(ct).
-    Notation lbl := (pol c.(ci)).
-    Notation dset := (ith dsets lbl orelse []).
-    Definition rw_indirect rn epil :=
-      match dset with
-      | [] => [Ib Sz1 (BL 0) (Rrt 0)]
+    Notation abort := [Ib Sz1 (BL 0) (Rrt 0)].
+    Definition rw_indirect rn epil lbl :=
+      match ith dsets lbl orelse [] with
+      | [] => abort
       | [d] => Iimm true Sz3 rn (Raddr d)::epil
       | _ =>
           let rtmp := b2i (is_zero rn) in
@@ -104,6 +118,21 @@ Section ChunkGeneration.
           Inum (Asm.LDR_r64 rn rtmp rn)::
           Inum (Asm.POP2 rtmp 31)::
           epil
+      end.
+    Notation ifft x :=
+      match c.(cp) with
+      | Pfallthru true | Pdirect true _ => x
+      | _ => abort
+      end.
+    Notation ifd ft d x :=
+      match c.(cp) with
+      | Pdirect ft d' => if d =? d' then x else abort
+      | _ => abort
+      end.
+    Notation ifi x :=
+      match c.(cp) with
+      | Pindirect lbl => x lbl
+      | _ => abort
       end.
     Definition setlr imm inst :=
       if imm <? 1<<32 then
@@ -118,25 +147,33 @@ Section ChunkGeneration.
         ; Inum (0x97fffffc) ].
     Definition rw_inst :=
       match t with
-      | ignore => [Inum n]
+      | ignore => ifft [Inum n]
       | invalid => [Ib Sz1 (BL 0) (Rrt 0)]
-      | ADR imm rd => [Iimm true Sz2 rd (Rimm ((i<<2)+sext imm 21))]
-      | ADRP imm rd => [Iimm true Sz3 rd (Rimm (clearlow12 (i<<2)+sext (imm<<12) 33))]
-      | Bcond imm _ | CBZ _ _ imm _ => [Ib Sz2 t (Raddr (i+sext imm 19))]
-      | B imm => [Ib Sz1 t (Raddr (i+sext imm 26))]
+      | ADR imm rd => ifft [Iimm true Sz2 rd (Rimm ((i<<2)+sext imm 21))]
+      | ADRP imm rd => ifft [Iimm true Sz3 rd (Rimm (clearlow12 (i<<2)+sext (imm<<12) 33))]
+      | Bcond imm _ | CBZ _ _ imm _ =>
+          let d := i+sext imm 19 in
+          ifd true d [Ib Sz2 t (Raddr d)]
+      | B imm =>
+          let d := i+sext imm 26 in
+          ifd _ d [Ib Sz1 t (Raddr d)]
       | BL imm =>
-          let dest := Raddr (i+sext imm 26) in
-          if a.(orig_lr)
-          then setlr ((i+1)<<2) (Ib Sz1 (B imm) dest)
-          else [Ib Sz1 t dest]
-      | TBZ _ _ _ imm _ => [Ib Sz2 t (Raddr (i+sext imm 14))]
-      | BR rn | RET rn => rw_indirect rn [Inum n]
+          let d := i+sext imm 26 in
+          ifd _ d (
+            if a.(orig_lr)
+            then setlr ((i+1)<<2) (Ib Sz1 (B imm) (Raddr d))
+            else [Ib Sz1 t (Raddr d)]
+          )
+      | TBZ _ _ _ imm _ =>
+          let d := i+sext imm 14 in
+          ifd true d [Ib Sz2 t (Raddr d)]
+      | BR rn | RET rn => ifi (rw_indirect rn [Inum n])
       | BLR rn =>
-          rw_indirect rn (
+          ifi (rw_indirect rn (
             if a.(orig_lr)
             then setlr ((i+1)<<2) (Inum (n lxor (1<<21)))
             else [Inum n]
-          )
+          ))
       end.
   End InstRewriter.
   Definition stage2 l := chunkmap rw_inst l.

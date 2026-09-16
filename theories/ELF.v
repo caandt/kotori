@@ -249,12 +249,12 @@ Definition rtd d entry :=
 Definition elf_rw hook bin runtime pol dsets nrelax orig_lr :=
   elf ← parse_elf bin;
   ts ← txt_seg elf;
-  let code := phdr_content elf ts in
+  let code := to_words (phdr_content elf ts) in
   let bi := ts.(p_vaddr) >> 2 in
   let bi' := get_page_after elf in
   let arg := {|
-    bi := bi; bi' := bi'; code := to_words code;
-    pol := pol; dsets := dsets; nrelax := nrelax;
+    bi := bi; bi' := bi'; code := code;
+    pol := permissive_pol code bi pol; dsets := dsets; nrelax := nrelax;
     rtlen := length runtime; orig_lr := orig_lr;
   |} in
   d' ← rw_hook arg hook;

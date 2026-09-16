@@ -25,6 +25,7 @@ type hash = [%import: Kotori.hash] [@@deriving show]
 type isize = [%import: Kotori.isize] [@@deriving show]
 type reloc = [%import: Kotori.reloc] [@@deriving show]
 type cinst = [%import: Kotori.cinst] [@@deriving show]
+type poltyp = [%import: Kotori.poltyp] [@@deriving show]
 type 'a chunk = [%import: 'a Kotori.chunk] [@@deriving show]
 type nat = [%import: Kotori.nat] [@@deriving show]
 type args = [%import: Kotori.args] [@@deriving show]
@@ -45,7 +46,7 @@ let default_pol path =
   let dset = List.init (List.length code) (fun x -> add bi (of_int x)) in
   Some (pol, [vdso @ dset])
 
-let make_args ?(pol=Fun.const zero) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) path =
+let make_args ?(pol=Fun.const (Pfallthru true)) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) path =
   let^ elf = Packager.load path in
   let^ code, va = Packager.get_text elf in
   let bi = lsr2 va in
@@ -54,7 +55,7 @@ let make_args ?(pol=Fun.const zero) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax
   let rtlen = String.length runtime |> of_int in
   Some { code; pol; dsets; bi; bi'; nrelax; rtlen; orig_lr = true }
 
-let global_data ?(pol=Fun.const zero) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) ?(hook=Fun.id) path =
+let global_data ?(pol=Fun.const (Pfallthru true)) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) ?(hook=Fun.id) path =
   let^ a = make_args ~pol ~dsets ~runtime ~nrelax path in
   Kotori.rw_hook a hook
 

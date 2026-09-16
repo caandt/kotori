@@ -30,12 +30,12 @@ let serialize_dat (d:Kotori.data) : Yojson.Basic.t =
       ("tbl", `List (List.map ji t.tblcontent));
       ("ti", ji t.tblidx);
     ]) d.tc));
-    ("pol", `List (List.init (List.length d.arg.code) ((+) (toint d.arg.bi)) |>
-      List.filter_map (fun i ->
-        let lbl = d.arg.pol (of_int i) in
-        if lt lbl (List.length d.tc |> of_int)
-        then Some (`List [`Int i; ji lbl])
-        else None)));
+    (* ("pol", `List (List.init (List.length d.arg.code) ((+) (toint d.arg.bi)) |> *)
+    (*   List.filter_map (fun i -> *)
+    (*     let lbl = d.arg.pol (of_int i) in *)
+    (*     if lt lbl (List.length d.tc |> of_int) *)
+    (*     then Some (`List [`Int i; ji lbl]) *)
+    (*     else None))); *)
     ("rets", `List (List.map ji d.rets));
   ]
 
@@ -68,11 +68,11 @@ let main args =
     else if args.counthook then Kotori.counthook
     else Fun.id in
 
-  if args.onlyjson then
-    let* pol, dsets = getpol () in
-    let* dat = global_data ~pol ~dsets args.input, "Error getting data" in
-    Ok (Option.iter (fun file -> Yojson.Basic.to_file file (serialize_dat dat)) args.json)
-  else
+  (* if args.onlyjson then *)
+  (*   let* pol, dsets = getpol () in *)
+  (*   let* dat = global_data ~pol ~dsets args.input, "Error getting data" in *)
+  (*   Ok (Option.iter (fun file -> Yojson.Basic.to_file file (serialize_dat dat)) args.json) *)
+  (* else *)
     let* pol, dsets = getpol () in
     let* bin', dat = Kotori.elf_rw hook bin runtime pol dsets nrelax args.lr, "Error rewriting" in
     save args bin' dat
