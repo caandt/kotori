@@ -105,6 +105,17 @@ Section ChunkGeneration.
           Inum (Asm.POP2 rtmp 31)::
           epil
       end.
+    Definition setlr imm inst :=
+      if imm <? 1<<32 then
+        [ Inum (0x14000004)
+        ; Iimm false Sz2 30 (Rimm imm)
+        ; inst
+        ; Inum (0x97fffffd) ]
+      else
+        [ Inum (0x14000005)
+        ; Iimm false Sz3 30 (Rimm imm)
+        ; inst
+        ; Inum (0x97fffffc) ].
     Definition rw_inst :=
       match t with
       | ignore => [Inum n]
@@ -114,24 +125,18 @@ Section ChunkGeneration.
       | Bcond imm _ | CBZ _ _ imm _ => [Ib Sz2 t (Raddr (i+sext imm 19))]
       | B imm => [Ib Sz1 t (Raddr (i+sext imm 26))]
       | BL imm =>
-          if a.(orig_lr) then
-            [ Inum (0x14000004)
-            ; Iimm false Sz2 30 (Rimm ((i+1)<<2))
-            ; Ib Sz1 (B imm) (Raddr (i+sext imm 26))
-            ; Inum (0x97fffffd) ]
-          else
-            [Ib Sz1 t (Raddr (i+sext imm 26))]
+          let dest := Raddr (i+sext imm 26) in
+          if a.(orig_lr)
+          then setlr ((i+1)<<2) (Ib Sz1 (B imm) dest)
+          else [Ib Sz1 t dest]
       | TBZ _ _ _ imm _ => [Ib Sz2 t (Raddr (i+sext imm 14))]
       | BR rn | RET rn => rw_indirect rn [Inum n]
       | BLR rn =>
-          if a.(orig_lr) then
-            rw_indirect rn
-              [ Inum (0x14000004)
-              ; Iimm false Sz2 30 (Rimm ((i+1)<<2))
-              ; Inum (n lxor (1<<21))
-              ; Inum (0x97fffffd) ]
-          else
-            rw_indirect rn [Inum n]
+          rw_indirect rn (
+            if a.(orig_lr)
+            then setlr ((i+1)<<2) (Inum (n lxor (1<<21)))
+            else [Inum n]
+          )
       end.
   End InstRewriter.
   Definition stage2 l := chunkmap rw_inst l.
