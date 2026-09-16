@@ -2,11 +2,11 @@
   "nodes": {
     "nixpkgs": {
       "locked": {
-        "lastModified": 1787498568,
-        "narHash": "sha256-9i/VTdusq/+NM/tz+J1Re+ojkMB8MBf0QshnYfzHz30=",
+        "lastModified": 1789286504,
+        "narHash": "sha256-eiEK7cKZORNEvX0GeF3RtNEF/JXhgf2RqSp3230q13E=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+        "rev": "ef34387ddd751e1ab8857adf4676492d32eb24ec",
         "type": "github"
       },
       "original": {
@@ -19,15 +19,15 @@
     "picinae": {
       "flake": false,
       "locked": {
-        "lastModified": 1787180403,
-        "narHash": "sha256-76gO5HjX2eMmEmj63ESwKCpYQiIK99sQQw9E77t/ruI=",
-        "owner": "CharlesAverill",
+        "lastModified": 1789402934,
+        "narHash": "sha256-y+7rnjrqS7LsyIN7wnzxv2ovaU9Ogsf+kgTAld81Fm4=",
+        "owner": "caandt",
         "repo": "Picinae",
-        "rev": "7545663c0043fc22971d6cc59e7a8c7f444a4e70",
+        "rev": "282583df1a4f3bb54dbf5f0c253131d40a1e3015",
         "type": "github"
       },
       "original": {
-        "owner": "CharlesAverill",
+        "owner": "caandt",
         "ref": "duneify",
         "repo": "Picinae",
         "type": "github"

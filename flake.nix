@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     picinae = {
       type = "github";
-      owner = "CharlesAverill";
+      owner = "caandt";
       repo = "Picinae";
       ref = "duneify";
       flake = false;
