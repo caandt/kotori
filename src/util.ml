@@ -38,15 +38,30 @@ let rec to_nat n =
   if n = 0 then Kotori.O
   else S (to_nat (n-1))
 
+let b_pol code bi p =
+  let code = Array.of_list code in
+  fun i ->
+    let j = sub i bi in
+    if toint j < Array.length code then
+      let f i j k = add i (Kotori.sext j (of_int k)) in
+      match Kotori.decode0 code.(toint j) with
+      | Bcond (imm,_) | CBZ (_,_,imm,_) -> Pdirect (true,f i imm 19)
+      | B imm | BL imm -> Pdirect (false,f i imm 26)
+      | TBZ (_,_,_,imm,_) -> Pdirect (true,f i imm 14)
+      | BR _ | RET _ | BLR _ -> Pindirect (p i)
+      | _ -> Pfallthru true
+    else Pfallthru false
+
 let default_pol path =
   let^ elf = Packager.load path in
   let^ code, va = Packager.get_text elf in
   let bi = lsr2 va in
   let pol _ = zero in
+  let pol = b_pol code bi pol in
   let dset = List.init (List.length code) (fun x -> add bi (of_int x)) in
   Some (pol, [vdso @ dset])
 
-let make_args ?(pol=Fun.const (Pfallthru true)) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) path =
+let make_args ?(pol=Fun.const Pignore) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) path =
   let^ elf = Packager.load path in
   let^ code, va = Packager.get_text elf in
   let bi = lsr2 va in
@@ -55,7 +70,7 @@ let make_args ?(pol=Fun.const (Pfallthru true)) ?(dsets=[]) ?(runtime=Runtime.ba
   let rtlen = String.length runtime |> of_int in
   Some { code; pol; dsets; bi; bi'; nrelax; rtlen; orig_lr = true }
 
-let global_data ?(pol=Fun.const (Pfallthru true)) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) ?(hook=Fun.id) path =
+let global_data ?(pol=Fun.const Pignore) ?(dsets=[]) ?(runtime=Runtime.base) ?(nrelax=3) ?(hook=Fun.id) path =
   let^ a = make_args ~pol ~dsets ~runtime ~nrelax path in
   Kotori.rw_hook a hook
 

@@ -62,4 +62,5 @@ let read_policy bpath ppath =
     let ret = Option.value ~default:999999999 (List.find_index ((=) x) d.rets) in
     ret |> Int64.of_int |> pol |> of_int in
   let dsets = List.map (List.map (fun x -> x |> of_int64 |> lsr2 |> irel)) dsets in
+  let pol' = b_pol d.arg.code d.arg.bi pol' in
   Some (pol', dsets)

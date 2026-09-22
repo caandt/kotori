@@ -58,7 +58,7 @@ let main args =
   let runtime = to_strl args.runtime in
   let nrelax = to_nat 3 in
   let getpol () = (
-    if args.polhook || args.counthook then Some (Fun.const zero, []) else
+    if args.polhook || args.counthook then Some (Fun.const Pignore, []) else
     match args.pol with
     | None -> Util.default_pol args.input
     | Some p -> Policy.read_policy args.input p

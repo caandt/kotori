@@ -39,6 +39,7 @@ Definition instsize inst :=
 Variant poltyp :=
   | Pfallthru (ft: bool)
   | Pdirect (ft: bool) (i: int)
+  | Pignore
   | Pindirect (lbl: int).
 Record chunk A := C {
   cn: int;
@@ -84,15 +85,6 @@ Definition setd{A B} (c: chunk A) (d: B) := C c.(cn) c.(ci) c.(ct) c.(cp) d.
 Notation chunkmap f l := (map (λ c, setd c (f c)) l).
 Definition instmapi{A} := @_mapi _ A instsize [].
 Notation chunkmapi rel f l := (chunkmap (λ c, instmapi (rel c.(ci)) f c.(cd)) l).
-Definition permissive_pol code bi p i :=
-  (ith code (i - bi) <&> λ n,
-    match decode n with
-    | Bcond imm _ | CBZ _ _ imm _ => Pdirect true (i + sext imm 19)
-    | B imm | BL imm => Pdirect false (i + sext imm 26)
-    | TBZ _ _ _ imm _ => Pdirect true (i + sext imm 14)
-    | BR _ | RET _ | BLR _ => Pindirect (p i)
-    | _ => Pfallthru true
-    end) orelse (Pfallthru false).
 Section ChunkGeneration.
   Variable a : args.
   Notation pol := a.(pol).
@@ -121,12 +113,13 @@ Section ChunkGeneration.
       end.
     Notation ifft x :=
       match c.(cp) with
-      | Pfallthru true | Pdirect true _ => x
+      | Pfallthru true | Pdirect true _ | Pignore => x
       | _ => abort
       end.
     Notation ifd ft d x :=
       match c.(cp) with
       | Pdirect ft d' => if d =? d' then x else abort
+      | Pignore => x
       | _ => abort
       end.
     Notation ifi x :=

@@ -254,7 +254,7 @@ Definition elf_rw hook bin runtime pol dsets nrelax orig_lr :=
   let bi' := get_page_after elf in
   let arg := {|
     bi := bi; bi' := bi'; code := code;
-    pol := permissive_pol code bi pol; dsets := dsets; nrelax := nrelax;
+    pol := pol; dsets := dsets; nrelax := nrelax;
     rtlen := length runtime; orig_lr := orig_lr;
   |} in
   d' ← rw_hook arg hook;
