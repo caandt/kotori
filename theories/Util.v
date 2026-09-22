@@ -114,8 +114,10 @@ Proof.
   simpl. intro. f_equal. now rewrite Z2Pos.id, Z.pred_succ, of_to_Z by apply Zle_lt_succ, to_Z_bounded.
 Defined.
 
-Definition iimap_empty : gmap.gmap int int := gmap.gmap_empty.
-Definition iimap_lookup i (m: gmap.gmap int int) := lookup i m.
+Definition iimap := gmap.gmap int int.
+Definition iimap_empty (_:int) : iimap := gmap.gmap_empty.
+Definition iimap_lookup i (m: iimap) := lookup i m.
+Definition iimap_insert k v (m: iimap) := insert k v m.
 Function iseq n l {measure to_nat n} :=
   if (n =? 0) then l else iseq (n-1) (n-1::l).
 Proof. lia. Defined.

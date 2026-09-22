@@ -13,20 +13,20 @@ Section Hashing.
     | H_EOR_UBFX _ _ width =>
         1 << width
     end.
-  Definition hash_func h :=
+  Definition hash_func h v :=
     match h with
-    | H_UBFX lsb width => λ v, (v >> lsb) mod (1 << width)
-    | H_EOR_UBFX shift lsb width => λ v, ((v lxor (v >> shift)) >> lsb) mod (1 << width)
+    | H_UBFX lsb width => (v >> lsb) mod (1 << width)
+    | H_EOR_UBFX shift lsb width => ((v lxor (v >> shift)) >> lsb) mod (1 << width)
     end.
-  Fixpoint valid_hash h D D' s :=
+  Fixpoint _valid_hash h D D' s :=
     match D, D' with
     | i::t, i'::t' =>
-        let k1 := hash_func h (4*i) in
-        let k2 := hash_func h (4*i') in
+        let k1 := hash_func h (i<<2) in
+        let k2 := hash_func h (i'<<2) in
         if (MSet.mem k1 s) || (MSet.mem k2 s)
         then false
         else let s' := MSet.add k2 (MSet.add k1 s) in
-             valid_hash h t t' s'
+             _valid_hash h t t' s'
     | _, _ => true
     end.
   Section find_valid.
@@ -37,6 +37,8 @@ Section Hashing.
       else None.
     Proof. lia. Defined.
   End find_valid.
+  Section f. Variable l : int.
+  Definition valid_hash h D D' s := if hash_size h <? l then false else _valid_hash h D D' s.
   Definition find_ubfx_lsb width D D' := find_valid 32 (λ lsb, valid_hash (H_UBFX lsb width) D D' MSet.empty) 0.
   Definition find_ubfx_width D D' := find_valid 12 (λ width, find_ubfx_lsb width D D') 3.
   Definition find_eorubfx_lsb shift width D D' := find_valid 32 (λ lsb, valid_hash (H_EOR_UBFX shift lsb width) D D' MSet.empty) 0.
@@ -51,17 +53,23 @@ Section Hashing.
     shift ← find_eorubfx_shift width D D';
     lsb ← find_eorubfx_lsb shift width D D';
     return H_EOR_UBFX shift lsb width.
+  End f.
   Definition find_hash D D' :=
-    match find_ubfx D D' with
+    let l := len D in
+    let l := l + l>>1 in
+    match find_ubfx l D D' with
     | Some h => Some h
-    | _ => find_eorubfx D D'
+    | _ => find_eorubfx l D D'
     end.
 End Hashing.
 
 Section Table.
   Definition compute_table_m h ai D D' :=
-    let entries := (map_single (λ '(i, i'), (hash_func h (4*i), 4*i')) (combine D D')) in
-    let entries' := (map_single (λ i', (hash_func h (4*i'), 4*i')) D') in
-    let m := fin_maps.list_to_map (entries++entries') in
-    map_single (fun n => iimap_lookup n m orelse (4*ai)) (iseq (hash_size h) []).
+    let m := fold_left (λ m p,
+      let a := p.1<<2 in
+      let a' := p.2<<2 in
+      iimap_insert (hash_func h a) a'
+      (iimap_insert (hash_func h a') a' m)
+    ) (combine D D') (iimap_empty (hash_size h)) in
+    map_single (fun n => iimap_lookup n m orelse (ai<<2)) (iseq (hash_size h) []).
 End Table.

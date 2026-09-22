@@ -44,7 +44,7 @@ let b_pol code bi p =
     let j = sub i bi in
     if toint j < Array.length code then
       let f i j k = add i (Kotori.sext j (of_int k)) in
-      match Kotori.decode0 code.(toint j) with
+      match Kotori.decode code.(toint j) with
       | Bcond (imm,_) | CBZ (_,_,imm,_) -> Pdirect (true,f i imm 19)
       | B imm | BL imm -> Pdirect (false,f i imm 26)
       | TBZ (_,_,_,imm,_) -> Pdirect (true,f i imm 14)
