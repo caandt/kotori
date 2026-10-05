@@ -208,7 +208,7 @@ assert (♮immlo=0\/♮immlo=1\/♮immlo=2\/♮immlo=3) by lia.
 rewrite I2N.inj_lsl.
 destruct H2 as [-> | [-> | [-> | ->]]]. 
 all: psimpl; reflexivity.
-Admitted. (*Qed*)
+Qed. (*Qed*)
 
 Lemma decode_BL:
 forall imm26,
@@ -226,6 +226,69 @@ unfold xbits. psimpl (_-_).
 destruct H; rewrite H; psimpl.
 all: unfold branch_exc; decode_hammer.
 all: unfold uncond_b_imm; decode_hammer.
+Qed.
+
+Axiom TODO : forall P : Prop, P.
+
+Local Ltac fold_lit_sub :=
+  match goal with
+  | |- context [ N.sub ?a ?b ] =>
+      let v := eval vm_compute in (a - b) in
+      lazymatch v with
+      | N0 => idtac
+      | Npos _ => idtac
+      end;
+      change (a - b) with v
+  end.
+
+Local Ltac hammer := repeat try first [
+  (progress repeat rewrite xbits_lor)    |
+  (progress repeat rewrite andb_false_l) |
+  (progress rewrite N.mod_small)        |
+  (progress rewrite N.lor_0_l)          |
+  (progress rewrite N.lor_0_r)          |
+  (progress rewrite xbits_shiftl)       |
+  (progress rewrite xbits_0_j)          |
+  (progress rewrite N.shiftl_0_r)       |
+  (progress rewrite N.shiftl_0_l)       |
+  (progress rewrite I2N.inj_lsl)        |
+  (progress rewrite I2N.inj_land)       |
+  (progress repeat fold_lit_sub)        |
+  reflexivity                           |
+  (progress psimpl)                     |
+  (rewrite N.shiftl_mul_pow2; lia)].      
+
+Lemma decode_LDP_STP:
+forall opc pre(*aka bit23*) L imm7 Rt2 Rn Rt,
+(toN opc = 2)->
+((toN pre) = 1 /\(toN L) = 0)\/((toN pre) = 0 /\(toN L) = 1)->
+(toN imm7) < 2^7 ->
+(toN Rt2) < 2^5 ->
+(toN Rn) < 2^5 ->
+(toN Rt) < 2^5 ->
+arm_decode (toN (Encode.LDP_STP opc pre L imm7 Rt2 Rn Rt)) =
+if ((toN pre) =? 0) then ARM_LD_STR_REG_PAIR ARM_LDP (toN Rn) (toN Rt) (toN Rt2) (toN imm7) 3 true true
+else ARM_LD_STR_REG_PAIR ARM_STP (toN Rn) (toN Rt) (toN Rt2) (toN imm7) 3 true false.
+Proof.
+Set Ltac Profiling.
+Reset Ltac Profile.
+intros.
+
+unfold Encode.LDP_STP.
+ nify. rewrite H.
+destruct H0; destruct H0; rewrite H0, H5; psimpl.
+
+change (N.lor (N.lor (N.shiftl 2 ♮30 mod 2 ^ 63) (N.shiftl ♮81 ♮23 mod 2 ^ 63))
+(N.shiftl 1 ♮24 mod 2 ^ 63)) with 2843738112.
+2: change ((N.lor(N.lor (N.shiftl 2 ♮30 mod 2 ^ 63)(N.shiftl ♮81 ♮23 mod 2 ^ 63))
+(N.shiftl 1 ♮22 mod 2 ^ 63))) with 2831155200.
+
+all: unfold arm_decode; hammer. 
+
+all: unfold load_store; hammer.
+unfold load_store_pre_indx_pair. hammer.
+
+unfold load_store_post_indx_pair. hammer.
 Qed.
 
 
@@ -255,7 +318,7 @@ vm_compute (N.succ 31).
 change (xbits ♮1920991232 29 31) with 3. psimpl.
 
 repeat rewrite I2N.inj_lor. repeat rewrite I2N.inj_lsl. repeat rewrite xbits_decode by lia.
-destruct H2; rewrite H2. psimpl. decode_hammer. pose proof H2 as H10.
+destruct H2; rewrite H2. psimpl. hammer. pose proof H2 as H10.
 
 apply H3 in H2. 
 assert (♮hw < 2 ^ 1 -> ♮hw <> 2 ->  (N.land ♮hw 2 =? 2) = false). intros.
@@ -264,7 +327,7 @@ rewrite N.shiftr_0_r in H4. destruct H4; rewrite H4; reflexivity.
 rewrite H4.  reflexivity. apply H3. assumption. lia. 
 
 change (xbits (N.shiftl 1 ♮31 mod 2 ^ 63) 31 32) with 1. psimpl.
-decode_hammer.
+hammer. 
 Qed.
 
 
@@ -294,7 +357,7 @@ vm_compute (N.succ 31).
 change (xbits ♮1384120320 29 31) with 2. psimpl.
 
 repeat rewrite I2N.inj_lor. repeat rewrite I2N.inj_lsl. repeat rewrite xbits_decode by lia.
-destruct H2; rewrite H2. psimpl. decode_hammer. pose proof H2 as H10.
+destruct H2; rewrite H2. psimpl. hammer. pose proof H2 as H10.
 
 apply H3 in H2. 
 assert (♮hw < 2 ^ 1 -> ♮hw <> 2 ->  (N.land ♮hw 2 =? 2) = false). intros.
@@ -303,7 +366,7 @@ rewrite N.shiftr_0_r in H4. destruct H4; rewrite H4; reflexivity.
 rewrite H4.  reflexivity. apply H3. assumption. lia. 
 
 change (xbits (N.shiftl 1 ♮31 mod 2 ^ 63) 31 32) with 1. psimpl.
-decode_hammer.
+hammer.
 Qed.
 
 Lemma decode_CBZ:
@@ -325,11 +388,11 @@ change (xbits ♮872415232 25 29) with 10. psimpl.
 unfold branch_exc. repeat rewrite xbits_decode by lia.
 repeat rewrite I2N.inj_lor, xbits_lor;
 rewrite I2N.inj_lsl. 
-destruct H2; rewrite H2; decode_hammer.
+destruct H2; rewrite H2; hammer. 
 all: change (xbits ♮872415232 29 32) with 1; psimpl.
 all: rewrite H1; psimpl.
 all: rewrite N.shiftr_div_pow2; rewrite land_pow2_small by lia; psimpl.
-all: unfold comp_and_b; decode_hammer.
+all: unfold comp_and_b; hammer.
 
 Qed. (*Qed*)
 
@@ -354,15 +417,15 @@ change (xbits ♮905969664 25 29) with 11. psimpl.
 unfold branch_exc. repeat rewrite xbits_decode by lia.
 repeat rewrite I2N.inj_lor, xbits_lor;
 rewrite I2N.inj_lsl. 
-destruct H2; rewrite H2; decode_hammer.
+destruct H2; rewrite H2; hammer.
 all: change (xbits ♮905969664 29 32) with 1; psimpl.
 all: rewrite H1; psimpl. 
 all: change (N.lor ♮905969664 (N.shiftl 1 ♮24)) with 922746880;
 change (xbits ♮905969664 12 26) with 8192;
 change (N.lor 8192 (2 ^ 12)) with 12288.
-all: decode_hammer. 
+all: hammer. 
 
-all: unfold test_and_b; decode_hammer.
+all: unfold test_and_b; hammer.
 Qed. (*Qed*)
 
 Lemma decode_UBFX:
@@ -395,7 +458,7 @@ change ((xbits ♮1392508928 29 31)) with 2. psimpl.
 repeat rewrite I2N.inj_lor, xbits_lor;
 rewrite I2N.inj_lsl. 
 destruct H2; rewrite H2; psimpl; change(N.succ 22) with 23. 
-all:  decode_hammer; rewrite H2 in H3; rewrite <- H3.
+all:  hammer; rewrite H2 in H3; rewrite <- H3.
 all: (reflexivity|| lia). 
 
 Qed. (*Qed*)
@@ -442,7 +505,7 @@ destruct H6 as [-> | [-> | [-> | ->]]].
 all: vm_compute;reflexivity.
 }
 
-unfold data_proc_logical. nify. decode_hammer.
+unfold data_proc_logical. nify. hammer.
 destruct H2; rewrite H2. apply H3 in H2.
 all: change (xbits ♮1241513984 29 31) with 2; psimpl; reflexivity.
 
@@ -453,41 +516,32 @@ Lemma decode_LDR_r:
 (*alias: UBFM*)
 forall size Rm option S Rn Rt,
 (toN Rm) <2^5 ->
-(toN option) < 2^3 ->
-(toN S) < 2^1 ->
-(toN size) = 2 \/ (toN size = 3)->
+(toN option) =3 ->
+(toN S) = 1 ->
+(toN size = 3)->
 (toN Rn) < 2^5 -> 
 (toN Rt) < 2^5 -> 
-((N.land ♮option 2 =? 0) = false) -> (*page C6-981,*)
 arm_decode (toN (Encode.LDR_r size Rm option S Rn Rt)) =
 ARM_LD_STR_REG (ARM_LDR_REG) (toN Rn) (toN Rm) (toN Rt) (toN option)    
-(if toN size =?2 then 32 else 64) (toN S).
+64 (toN S).
 Proof.
 intros.
-pose proof H1 as H'.
-change (2^1) with (2^0*2) in H1. apply shiftr_bdes in H1. rewrite N.shiftr_0_r in H1.
 
 unfold Encode.LDR_r. vm_compute (451 << 21).
-unfold arm_decode. repeat rewrite xbits_decode by lia.  
-rewrite xbits_decode1 by simpl_sf H2.
+unfold arm_decode. nify. rewrite H1, H2, H0. 
+autorewrite with decode_db. 
 change (xbits ♮945815552 25 29) with 12. psimpl.
+hammer.
 
-unfold load_store. repeat rewrite xbits_decode by lia.
-vm_compute (N.succ _). 
-nify. destruct H2; rewrite H2. 
-change (xbits (N.lor (N.shiftl 2 ♮30 mod 2 ^ 63) ♮945815552) 28 32) with 11.
-change (xbits (N.lor (N.shiftl 3 ♮30 mod 2 ^ 63) ♮945815552) 28 32) with 15.
-all: psimpl; autorewrite with decode_db; vm_compute (_ - _).
-all: destruct H1; rewrite H1; psimpl;
-vm_compute (xbits ♮2 0 2); psimpl.
-all: change (xbits ♮945815552 16 22) with 32; change (xbits ♮945815552 28 32 mod 4) with 3.
-all: rewrite N.land_lor_distr_l; replace (N.land ♮Rm 32) with 0; psimpl;
- try( 
-  symmetry;
-  change 32 with (2^5); apply land_pow2_small; assumption
-).
-all: unfold load_store_reg_off; decode_hammer;rewrite H5;
-change (xbits ♮945815552 22 24) with 1;psimpl; reflexivity.
+change ((N.shiftl 3 ♮13)) with 24576.
+change ((N.shiftl 1 ♮12)) with 4096.
+change ((N.shiftl ♮2 ♮10)) with 2048.
+unfold load_store.
+hammer.
+change (xbits ♮945815552 28 32) with 3. 
+change (xbits ♮945815552 16 22) with 32. psimpl.
+unfold load_store_reg_off.
+hammer.
 
 Qed. (*Qed*)
 
@@ -504,46 +558,31 @@ arm_decode (toN (Encode.LDR_STR size opc imm9 pre Rn Rt)) =
 if ((toN opc) =? 0) then ARM_INDEXED ARM_STR_IMM (toN Rn) (toN Rt) (toN imm9) 64 true true false else ARM_INDEXED ARM_LDR_IMM (toN Rn) (toN Rt) (toN imm9) 64 true true true.
 Proof.
 intros.
-
 unfold Encode.LDR_STR. nify. rewrite H.
-destruct H0; destruct H0; rewrite H0, H4; psimpl;decode_hammer.
-all: unfold arm_decode;
-autorewrite with decode_db; vm_compute (_-_); 
-change (xbits ♮56 1 5) with 12; decode_hammer. 
-all: unfold load_store; decode_hammer; change (xbits ♮56 4 8) with 3; change 32 with (2^5); rewrite land_pow2_small; psimpl.
-2,4 : rewrite N.shiftr_div_pow2; change (2^5) with (2^9/2^4); lia.
-unfold load_store_reg_imm_pre; decode_hammer.
-unfold load_store_reg_imm_poi; decode_hammer.
+
+assert(H5: N.land (N.shiftr ♮imm9 4) 32 = 0).
+change 32 with (2^5). apply land_pow2_small.
+rewrite N.shiftr_div_pow2.
+change (2^9) with (2^4 * 2^5) in H1.
+apply N.Div0.div_lt_upper_bound in H1.
+assumption. apply N.eqb_eq in H5. 
+
+destruct H0; destruct H0; rewrite H0, H4; psimpl;hammer.
+change (N.lor (N.lor (N.shiftl 3 ♮30) (N.shiftl ♮56 ♮24))
+(N.shiftl 1 ♮22)) with 4164943872.
+all: change ((N.lor (N.shiftl 3 ♮30) (N.shiftl ♮56 ♮24))) with 4160749568.
+change (N.shiftl 3 ♮10) with 3072.
+2: change (N.lor 4160749568 (N.shiftl 1 ♮22)) with 4164943872; change ((N.shiftl 1 ♮10)) with 1024.
+all: unfold arm_decode; hammer.
+
+all: unfold load_store; autorewrite with decode_db;
+change ((xbits 4160749568 28 32)) with 15; hammer;
+rewrite H5. 
+unfold load_store_reg_imm_pre. hammer.
+unfold load_store_reg_imm_poi. hammer.
 
 Qed. (*Qed*)
 
-Lemma decode_LDP_STP:
-forall opc pre(*aka bit23*) L imm7 Rt2 Rn Rt,
-(toN opc = 2)->
-((toN pre) = 1 /\(toN L) = 0)\/((toN pre) = 0 /\(toN L) = 1)->
-(toN imm7) < 2^7 ->
-(toN Rt2) < 2^5 ->
-(toN Rn) < 2^5 ->
-(toN Rt) < 2^5 ->
-arm_decode (toN (Encode.LDP_STP opc pre L imm7 Rt2 Rn Rt)) =
-if ((toN pre) =? 0) then ARM_LD_STR_REG_PAIR ARM_LDP (toN Rn) (toN Rt) (toN Rt2) (toN imm7) 3 true true
-else ARM_LD_STR_REG_PAIR ARM_STP (toN Rn) (toN Rt) (toN Rt2) (toN imm7) 3 true false.
-Proof.
-intros.
-
-unfold Encode.LDP_STP. nify. rewrite H.
-destruct H0; destruct H0; rewrite H0, H5; psimpl;decode_hammer.
-all: unfold arm_decode
-; decode_hammer;
-change (xbits ♮81 2 6) with 4; psimpl. 
-change (N.lor (N.lor (N.shiftl 2 ♮30) (N.shiftl ♮81 ♮23))
-(N.shiftl 1 ♮24)) with 2843738112.
-2: change (N.lor (N.lor (N.shiftl 2 ♮30) (N.shiftl ♮81 ♮23))
-(N.shiftl 1 ♮22)) with 2831155200.
-all: unfold load_store; decode_hammer.
-unfold load_store_pre_indx_pair; decode_hammer. 
-unfold load_store_post_indx_pair; decode_hammer.
-Qed.
 
 (*Execution Lemmas*)
 
