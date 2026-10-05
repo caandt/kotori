@@ -111,17 +111,19 @@ Section ChunkGeneration.
           Inum (Asm.POP2 rtmp 31)::
           epil
       end.
-    Notation ifft x :=
+    Definition isfallthrough :=
       match c.(cp) with
-      | Pfallthru true | Pdirect true _ | Pignore => x
-      | _ => abort
+      | Pfallthru true | Pdirect true _ | Pignore => true
+      | _ => false
       end.
-    Notation ifd ft d x :=
+    Definition isdirect f d :=
       match c.(cp) with
-      | Pdirect ft d' => if d =? d' then x else abort
-      | Pignore => x
-      | _ => abort
+      | Pdirect ft d' => (f || ft) && (d =? d')
+      | Pignore => true
+      | _ => false
       end.
+    Notation ifft x := (if isfallthrough then x else abort).
+    Notation ifd f d x := (if isdirect f d then x else abort).
     Notation ifi x :=
       match c.(cp) with
       | Pindirect lbl => x lbl
@@ -146,20 +148,20 @@ Section ChunkGeneration.
       | ADRP imm rd => ifft [Iimm true Sz3 rd (Rimm (clearlow12 (i<<2)+sext (imm<<12) 33))]
       | Bcond imm _ | CBZ _ _ imm _ =>
           let d := i+sext imm 19 in
-          ifd true d [Ib Sz2 t (Raddr d)]
+          ifd false d [Ib Sz2 t (Raddr d)]
       | B imm =>
           let d := i+sext imm 26 in
-          ifd _ d [Ib Sz1 t (Raddr d)]
+          ifd true d [Ib Sz1 t (Raddr d)]
       | BL imm =>
           let d := i+sext imm 26 in
-          ifd _ d (
+          ifd true d (
             if a.(orig_lr)
             then setlr ((i+1)<<2) (Ib Sz1 (B imm) (Raddr d))
             else [Ib Sz1 t (Raddr d)]
           )
       | TBZ _ _ _ imm _ =>
           let d := i+sext imm 14 in
-          ifd true d [Ib Sz2 t (Raddr d)]
+          ifd false d [Ib Sz2 t (Raddr d)]
       | BR rn | RET rn => ifi (rw_indirect rn [Inum n])
       | BLR rn =>
           ifi (rw_indirect rn (
