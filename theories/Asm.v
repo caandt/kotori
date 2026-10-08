@@ -34,7 +34,7 @@ End Encode.
 Definition bounded x bw :=
   let bound := 1<<(bw-1) in
   if ((-bound <=? x) && (x <? bound))%sint63
-  then Some (x land (1<<bw-1))
+  then Some (x land ones bw)
   else None.
 Definition Bcond src dst cond :=
   bounded (dst - src) 19 <&> λ imm19, Encode.Bcond imm19 cond.
