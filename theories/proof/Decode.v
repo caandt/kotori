@@ -9,6 +9,7 @@ From Kotori Require Import proof.I2N.
 Open Scope N_scope.
 Import Lia.
 
+
 (*when x is lower than the range you're looking for*)
 Lemma xbits_decode : 
 forall x a b c, (toN x) < 2^b ->
@@ -582,7 +583,3 @@ unfold load_store_reg_imm_pre. hammer.
 unfold load_store_reg_imm_poi. hammer.
 
 Qed. (*Qed*)
-
-
-(*Execution Lemmas*)
-
