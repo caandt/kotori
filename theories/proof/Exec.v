@@ -80,6 +80,13 @@ Proof.
   simpl in *. remember (_ mod _).
   remember (_<<_).
   repeat case_match; step_stmt XS ;by destruct XS.
+  1-2: admit.
+  apply Uint63.ltb_spec in H.
+  unfold toN.
+  change (2^2 ) with 4.
+  apply Uint63.ltb_spec in H.
+  Search (_=true).
+  all: easy.
 Admitted.
 Lemma ExecMovk:
   forall s s' c' x a r imm hw
@@ -123,12 +130,17 @@ forall {immlo immhi Rd c' s s' x a}
 (IMMLO: (toN immlo) < 2 ^ 2 )
     (XS: exec_stmt arm8typctx s
       (arm2il a (arm_decode ♮(Asm.Encode.ADR immlo immhi Rd))) c' s' x),
-    reset_temps s s' = s.[R_PC := a mod 2^64] /\
-      x = Some (Raise 0).
+    reset_temps s s' = s.[R_PC := a mod 2^64].[arm_varid ♮Rd := (a mod 2^64) ⊕ (scast 21 64 (N.lor (♮immhi << 2) ♮immlo))].
       
 Proof.
 intros. rewrite decode_ADR in XS. unfold arm2il in XS.
-remember (_ mod _). step_stmt XS. destruct XS. all: assumption.
+unfold arm_adr2il in XS. 
+remember (_ mod _). 
+remember (scast _ _ _). all:try assumption. 
+
+unfold arm_varid in XS.  repeat case_match;
+step_stmt XS; destruct XS as [[XS _]_];
+try assumption.
 Qed.
 Lemma ExecADRP:
 forall {immlo immhi Rd c' s s' x a}
@@ -142,7 +154,9 @@ forall {immlo immhi Rd c' s s' x a}
       
 Proof.
 intros. rewrite decode_ADRP in XS. unfold arm2il in XS.
-remember (_ mod _). step_stmt XS. destruct XS. all: assumption.
+unfold arm_adrp2il in XS.
+remember (_ mod _). remember (scast _ _ _).
+step_stmt XS. destruct XS. all: assumption.
 Qed.
 Ltac destruct_match_e :=
 repeat
@@ -251,15 +265,26 @@ all: try eapply cbz_helper_x_branch_None. all: try eassumption.
 
 Qed.
 
+Local Ltac clean_up XS n1:=
+  repeat match type of XS with
+  | context [_ mod 2 ^ ?k] =>
+      replace k with 1 in XS
+        by (transitivity (N.succ n1 - n1); [lia | reflexivity])
+  end;
+  simpl in XS.
+
+(*fix lifter it shouldnt be raising an exception*)
 Lemma ExecTBZ:
   forall {b5 op b40 imm14 Rt c' s s' x a}
     (RD: toN Rt < 2^5) (IMM: toN imm14 < 2^14) (SF: toN b5 < 2^1) (OP: ♮op = 0)
-    (B40: ♮b40 <2^5)
+    (B40: ♮b40 <2^4)
     (XS: exec_stmt arm8typctx s
            (arm2il a (arm_decode ♮(Asm.Encode.TBZ b5 op b40 imm14 Rt))) c' s' x),
   let s0 := s.[R_PC := a mod 2^64] in
-  reset_temps s s' = s0 ∧
-  x =None.
+  reset_temps s s' = s0 ∧ 
+  ( x = Some (Raise 0) \/
+  x =Some (Addr ((a mod 2^64) ⊕ scast 16 64 (♮imm14 << 2))) \/
+  x=None).
 Proof.
 intros.
 
@@ -269,7 +294,55 @@ unfold arm_tbz2il in XS.
  remember (_ mod _).
 remember (scast _ _ (♮_ << _)) as n0.
 remember (cbits _ _ _).
--- split.
----
-unfold XtoVar in XS. repeat case_match. step_stmt XS.
-Admitted.
+
+all: try assumption.
+split.
+
+-- 
+
+unfold XtoVar in XS. repeat case_match;
+step_stmt XS; clean_up XS n1.
+
+all: destruct (s _ >> n1 mod 2 ^ 1 =? 0);
+destruct XS as [XS _];
+step_stmt XS; destruct XS as [XS _];
+ [(destruct (s R_nRW =? 1); step_stmt XS; destruct XS as [[XS _]_];
+subst s0; assumption)
+ | destruct XS; subst s0; assumption].
+
+
+--
+
+unfold XtoVar in XS. repeat case_match;
+step_stmt XS; clean_up XS n1. 
+
+destruct XS as [XS _]; destruct (s _ >> n1 mod 2 ^ 1 =? 0); try
+destruct XS as [XS _].
+step_stmt XS. destruct XS as [XS _].
+
+
+all: destruct XS as [XS _]; destruct (s _ >> n1 mod 2 ^ 1 =? 0); try
+destruct XS as [XS _];
+step_stmt XS; destruct XS as [XS _];
+destruct (s R_nRW =? 1); try step_stmt XS; try destruct XS as [[_ XS]_]. 
+
+all: try first [
+left; assumption|
+right; left; assumption| destruct XS; right; right; assumption]. 
+
+Qed.
+
+Lemma ExecEOR:
+forall {sf shift imm6 Rm Rn Rd c' s s' x a}
+    (RD: toN sf < 2^1) (IMM: toN imm6 < 2^6) (SHFT: toN shift < 2^1) 
+    (RM: toN Rm < 2^5) (RN: toN Rn < 2^5) (RD: toN Rd < 2^5)
+    (XS: exec_stmt arm8typctx s
+           (arm2il a (arm_decode ♮(Asm.Encode.EOR sf shift Rm imm6 Rn Rd))) c' s' x),
+  let s0 := s.[R_PC := a mod 2^64] in
+  reset_temps s s' = s0 ∧
+  x = if (s (arm_varid ♮Rd)) mod 2 ^ (if ♮sf =? 0 then 32 else 64) =? 0 then
+        if s R_nRW =? 1 then Some (Raise 0)
+        else Some (Addr ((a mod 2^64) ⊕ scast 21 64 (♮imm6 << 2)))
+      else None.
+Proof.
+intros.

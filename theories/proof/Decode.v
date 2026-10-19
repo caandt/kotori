@@ -155,7 +155,7 @@ forall immlo immhi Rd,
 (toN immhi < 2^19)->
 (toN immlo < 2^2) ->
 (toN Rd < 2^5)->
-arm_decode(toN (Encode.ADR immlo immhi Rd)) = ARM_ADR_IMM.
+arm_decode(toN (Encode.ADR immlo immhi Rd)) = ARM_ADR_IMM (toN immlo) (toN immhi) (toN Rd).
 Proof.
 intros.
 unfold Encode.ADR. unfold arm_decode. 
@@ -184,7 +184,7 @@ forall immlo immhi Rd,
 (toN immhi < 2^19)->
 (toN immlo < 2^2) ->
 (toN Rd < 2^5)->
-arm_decode(toN (Encode.ADRP immlo immhi Rd)) = ARM_ADRP_IMM.
+arm_decode(toN (Encode.ADRP immlo immhi Rd)) = ARM_ADRP_IMM (toN immlo) (toN immhi) (toN Rd).
 Proof.
 intros.
 unfold Encode.ADRP. unfold arm_decode. 
