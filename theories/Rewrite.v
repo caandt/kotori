@@ -370,5 +370,6 @@ Section InstSelection.
     let c := chunkmapi rel isel d.(chunks) in
     let r := map (λ c, setd c (nconcat c.(cd))) c in
     assert nonenil r;
+    assert sumlt (d.(arg).(bi')::(map (len ∘ cd) r)) (1<<62);
     return r.
 End InstSelection.
