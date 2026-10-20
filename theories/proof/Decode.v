@@ -296,7 +296,7 @@ Qed.
 Lemma decode_MOVK :
 forall sf hw imm16 Rd,
 (toN imm16) < 2^16 ->
-(toN Rd) < 2^4 ->
+(toN Rd) < 2^5 ->
 (toN hw) < 2^2 ->
 (toN sf) < 2^1 -> 
 ((toN sf) = 0 -> toN hw < 2^1) ->
@@ -335,7 +335,7 @@ Qed.
 Lemma decode_MOVZ :
 forall sf hw imm16 Rd,
 (toN imm16) < 2^16 ->
-(toN Rd) < 2^4 ->
+(toN Rd) < 2^5 ->
 (toN hw) < 2^2 ->
 (toN sf) < 2^1 -> 
 ((toN sf) = 0 -> toN hw < 2^1) ->
@@ -374,13 +374,14 @@ Lemma decode_CBZ:
 forall sf op imm19 Rt,
 (toN imm19) < 2^19 ->
 (toN Rt) < 2^5 ->
-(toN op) = 0 ->
+(toN op) < 2^1 -> 
 (toN sf) < 2^1 -> 
 arm_decode (toN (Encode.CBZ sf op imm19 Rt)) =
-ARM_CBZ (toN Rt) (toN imm19) (if toN sf =? 0 then 32 else 64) .
+(if toN op =? 0 then ARM_CBZ else ARM_CBNZ) (toN Rt) (toN imm19) (if toN sf =? 0 then 32 else 64) .
 Proof.
 intros. pose proof H2 as H2'.
 change (2^1) with (2^0*2) in H2. apply shiftr_bdes in H2. rewrite N.shiftr_0_r in H2. 
+change (2^1) with (2^0*2) in H1. apply shiftr_bdes in H1. rewrite N.shiftr_0_r in H1. 
 
 unfold Encode.CBZ. vm_compute (52 << 24). 
 unfold arm_decode.  repeat rewrite xbits_decode by lia. rewrite xbits_decode1 by simpl_sf H2.
@@ -389,10 +390,10 @@ change (xbits ♮872415232 25 29) with 10. psimpl.
 unfold branch_exc. repeat rewrite xbits_decode by lia.
 repeat rewrite I2N.inj_lor, xbits_lor;
 rewrite I2N.inj_lsl. 
-destruct H2; rewrite H2; hammer. 
+destruct H2, H1; rewrite !H2, !H1; hammer. 
 all: change (xbits ♮872415232 29 32) with 1; psimpl.
 all: rewrite H1; psimpl.
-all: rewrite N.shiftr_div_pow2; rewrite land_pow2_small by lia; psimpl.
+all: rewrite N.shiftr_div_pow2; rewrite land_pow2_small by (try apply lor_bound; lia); psimpl.
 all: unfold comp_and_b; hammer.
 
 Qed. (*Qed*)
@@ -401,15 +402,16 @@ Lemma decode_TBZ:
 forall b5 op b40 imm14 Rt,
 (toN imm14) < 2^14 ->
 (toN Rt) < 2^5 ->
-(toN op) = 0 ->
+(toN op) < 2^1 ->
 (toN b5) <2^1 ->
 (toN b40) < 2^4 -> 
 arm_decode (toN (Encode.TBZ b5 op b40 imm14 Rt)) =
-ARM_TBZ (toN Rt) (toN imm14) (toN b5) (toN b40) .
+(if toN op =? 0 then ARM_TBZ else ARM_TBNZ) (toN Rt) (toN imm14) (toN b5) (toN b40) .
 Proof.
 intros. 
-pose proof H2 as H2'.
+pose proof H2 as H2'. pose proof H1 as H1'.
 change (2^1) with (2^0*2) in H2. apply shiftr_bdes in H2. rewrite N.shiftr_0_r in H2. 
+change (2^1) with (2^0*2) in H1. apply shiftr_bdes in H1. rewrite N.shiftr_0_r in H1. 
 
 unfold Encode.TBZ. vm_compute (54 << 24). 
 unfold arm_decode.  repeat rewrite xbits_decode by lia. rewrite xbits_decode1 by simpl_sf H2.
@@ -418,7 +420,7 @@ change (xbits ♮905969664 25 29) with 11. psimpl.
 unfold branch_exc. repeat rewrite xbits_decode by lia.
 repeat rewrite I2N.inj_lor, xbits_lor;
 rewrite I2N.inj_lsl. 
-destruct H2; rewrite H2; hammer.
+destruct H2, H1; rewrite H2, H1; hammer.
 all: change (xbits ♮905969664 29 32) with 1; psimpl.
 all: rewrite H1; psimpl. 
 all: change (N.lor ♮905969664 (N.shiftl 1 ♮24)) with 922746880;
@@ -437,7 +439,7 @@ forall sf N immr imms Rn Rd,
 (toN N) < 2^1 ->
 (toN sf) < 2^1 ->
 (toN sf = toN N)->
-(toN Rn) < 2^4 -> 
+(toN Rn) < 2^5 -> 
 (toN Rd) < 2^5 -> 
 arm_decode (toN (Encode.UBFX sf N immr imms Rn Rd)) =
 ARM_LOGICAL_IMM (ARM_UBFM_IMM) (toN Rn) (toN Rd) (toN immr) (toN imms) (toN sf) (toN N) .

@@ -186,6 +186,27 @@ Notation "a ∈ b , c" := (a = b \/ a = c) (at level 70, b at next level).
 Open Scope uint63.
 Lemma intleb_natle: forall i j, i <=? j = true -> ♮i <= ♮j. Proof. lia. Qed.
 Lemma Nat2I_inj_add: forall a b, (♯(a + b) = add ♯a ♯b)%nat. Proof. lia. Qed.
+Lemma instsize_correct:
+  forall d i a (NE: isel d i a <> Lst0), len (l3l (isel d i a)) = instsize a.
+Proof.
+  intros. remember (isel _ _ _) in *.
+  unfold isel in Heql. destruct a.
+  - now subst.
+  - destruct sz.
+    + destruct (_ _ _ r); now subst.
+    + repeat case_match; now subst.
+    + repeat case_match; now subst.
+  - repeat case_match; now subst.
+  - repeat case_match;
+    repeat match type of Heql with
+      context[?a <&> _] => destruct a; now subst
+     end; now subst.
+Qed.
+Lemma instsize_correct':
+  forall d i a (NE: isel d i a <> Lst0), length (l3l (isel d i a)) = toNat (instsize a).
+Proof.
+  intros. rewrite <-(instsize_correct d i a), len_length by done. by destruct isel.
+Qed.
 Lemma chunksize_correct:
   forall x d i c
     (NE: Forall (.≠ Lst0) (instmapi i (isel d) x))
@@ -198,18 +219,7 @@ Proof.
   - rewrite nconcat_concat, mapi_acc by assumption. rewrite mapi_acc, Forall_app in NE. simpl.
     rewrite len_length, length_app, Nat2I_inj_add, <-!len_length, <-nconcat_concat, IHx with (c:=c) by easy.
     unfold chunksize. simpl. rewrite isum_cons. f_equal.
-  { apply proj1, Forall_inv in NE. clear -NE. remember (isel _ _ _) in *.
-    unfold isel in Heql. destruct a.
-    - now subst.
-    - destruct sz.
-      + destruct (_ _ _ r); now subst.
-      + repeat case_match; now subst.
-      + repeat case_match; now subst.
-    - repeat case_match; now subst.
-    - repeat case_match;
-      repeat match type of Heql with
-        context[?a <&> _] => destruct a; now subst
-       end; now subst. }
+    apply instsize_correct. by apply proj1, Forall_inv in NE.
 Qed.
 
 Definition change_sz i sz :=
@@ -224,8 +234,17 @@ Definition instsz i :=
   | Ihsh _ _ => Sz2
   | Iimm _ sz _ _ | Ib sz _ _ => sz
   end.
+Fixpoint zip_withl {A B} (f: A -> B -> A) l1 l2 :=
+  match l1 with
+  | [] => []
+  | x::t1 =>
+      match l2 with
+      | [] => l1
+      | y::t2 => f x y :: zip_withl f t1 t2
+      end
+  end.
 Definition change_szs c c' :=
-  setd c (zip_with change_sz c.(cd) (map instsz c'.(cd))).
+  setd c (zip_withl change_sz c.(cd) (map instsz c'.(cd))).
 Lemma relaxi_same:
   forall rel i' inst,
   exists sz, relaxi rel i' inst = change_sz inst sz.
@@ -298,7 +317,6 @@ Section rw2.
 
   Variable MR : (rel, ai) = makerel d.(arg) d.(chunks).
   Variable NO : NoOverflow ♮bi' cnks.
-  Variable CL : Forall (λ c, length c.(cd) < 100)%nat cnks.
   Variable CORD : forall n c, nth_error d.(chunks) n = Some c -> c.(ci) = bi + (♯n)%nat.
   Variable NN: csum bi' (map chunksize d.(chunks)) (len d.(chunks)) <=? ai = true.
 
@@ -307,7 +325,7 @@ Section rw2.
   Lemma correct_lens:
     cmap len cnks = map chunksize d.(chunks).
   Proof.
-    repeat so RW; subst; clear -Heqb. apply nonenil_correct in Heqb.
+    clear MR NO CORD NN. repeat so RW; subst; clear -Heqb. apply nonenil_correct in Heqb.
     rewrite !map_map in *. apply map_ext_in.
     intros; destruct a; simpl in *.
     erewrite chunksize_correct with (x:=cd); auto.
@@ -315,25 +333,18 @@ Section rw2.
     intros x I X; subst. apply nconcat_lst0 in I.
     eapply in_map, Heqb in H. simpl in H. now subst' I.
   Qed.
-  Lemma correct_lengths:
-    cmap nlen cnks = map toN (map chunksize d.(chunks)).
-  Proof.
-    rewrite <-correct_lens. clear -CL. induction cnks; simpl.
-      reflexivity.
-      rewrite IHl, len_length, nlen_length by now inversion CL. f_equal. inversion CL. lia.
-  Qed.
   Lemma no_lst0:
     forall a (A: In a d.(chunks)),
     Forall (.≠ Lst0) (instmapi (rel a.(ci)) (isel d) a.(cd)).
   Proof.
-    repeat so RW; subst; clear -Heqb. apply nonenil_correct in Heqb.
+    repeat so RW; clear -Heqb. apply nonenil_correct in Heqb.
     intros. rewrite !Forall_map, Forall_forall in Heqb. apply Heqb in A.
     now apply nconcat_notnil.
   Qed.
   Lemma chunk_equiv:
     cnks = chunkmap (λ x, concat (map l3l (instmapi (rel x.(ci)) (isel d) x.(cd)))) d.(chunks).
   Proof.
-    pose proof no_lst0 as NL.
+    clear NO. pose proof no_lst0 as NL.
     repeat so RW; subst; clear -NL.
     rewrite map_map. apply map_ext_in.
     intros. now rewrite nconcat_concat by now apply NL.
@@ -354,6 +365,14 @@ Section rw2.
   Qed.
   Lemma num_cnks: length cnks = length d.(chunks).
   Proof. now rewrite chunk_equiv, length_map. Qed.
+  Variable CL : Forall (λ c, length c.(cd) < 100)%nat cnks.
+  Lemma correct_lengths:
+    cmap nlen cnks = map toN (map chunksize d.(chunks)).
+  Proof.
+    rewrite <-correct_lens. clear -CL. induction cnks; simpl.
+      reflexivity.
+      rewrite IHl, len_length, nlen_length by now inversion CL. f_equal. inversion CL. lia.
+  Qed.
   Lemma chunklenbound: Forall (λ c, length c.(cd) < 100)%nat d.(chunks).
   Proof.
     pose proof no_lst0 as NL.

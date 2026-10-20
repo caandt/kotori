@@ -89,6 +89,11 @@ Extract Constant csum => "(fun sum lst ->
     if i < n then table.(i)
     else !acc
 )".
+Fixpoint sumlt l n :=
+  match l with
+  | [] => 0 <? n
+  | a::t => if n <=? a then false else sumlt t (n-a)
+  end.
 
 Definition sext n w := asr (n << (63 - w)) (63 - w).
 Definition padding x b := (1 << b - x land (1 << b - 1)) land (1 << b - 1).
