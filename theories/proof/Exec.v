@@ -273,7 +273,7 @@ Proof.
   rewrite mod_pow2_toZ; lia.
 Qed.
 
-
+From Stdlib Require Import NArith.   
 
 Lemma plusminus62:
   forall a b
@@ -319,48 +319,84 @@ Proof.
   repeat case_match; step XS. all: auto.
 Qed.
 
-Lemma ExecPush2:
+
+Set Printing Depth 40. 
+Lemma arm_varid_neq:
+  forall {Xt1 Xt2}
+  (NEQ: (♮Xt1 =? ♮Xt2) = false),
+  (arm_varid ♮Xt1 <> arm_varid ♮Xt2).
+Proof. Admitted.
+
+Lemma toN_lt32 : forall x, (x <? 32)%uint63 = true -> ♮x < 32.
+Proof.
+  intros x Hx. apply Uint63.ltb_spec in Hx.
+  pose proof (Uint63.to_Z_bounded x).
+  unfold toN.                   
+  change (Uint63.to_Z 32) with 32%Z in Hx.
+  lia.
+Qed.
+
+Lemma ExecPop2:
   forall {s s' c a Xt1 x Xt2}
   (XT: (Xt1 <? 32 =  true)%uint63)
   (XT2:( Xt2 <? 32 = true)%uint63)
-  (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Arm.Encode.LDP_post64 Xt1 Xt2 31 (0x10) orelse 0)))),
-   reset_temps s s' = s.[arm_varid ♮Xt1 := 0] /\ x = None.
+  (NEQ: (♮Xt1 =? ♮Xt2) = false)
+  (AL  : s R_SP mod 16 = 0)
+  (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Asm.POP2 Xt1 Xt2 ))) c s' x),
+
+   reset_temps s s' = s.[arm_varid ♮Xt1 := getmem 64 LittleE 8 (s V_MEM64) (s R_SP)].[arm_varid ♮Xt2 :=
+   getmem 64 LittleE 8 (s V_MEM64) (s R_SP ⊕ 8)].[R_SP := s R_SP ⊕ 16] /\ x = None.
 Proof.
-(*cleaned it rn*)
-(**)
-(* Lemma ExecADRP: *)
-(*   forall {s s' x a c immlo immhi Rd} *)
-(*     (L: (immlo <? 1<<2 = true)%uint63) *)
-(*     (H: (immhi <? 1<<19 = true)%uint63) *)
-(*     (R: (Rd <? 31 = true)%uint63) *)
-(*     (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Asm.Encode.ADRP immlo immhi Rd))) c s' x), *)
-(*     reset_temps s s' = s.[arm_varid ♮Rd := (a>>12<<12) ⊕ scast 33 64 (N.lor (♮immhi << 2) ♮immlo)] /\ x = None. *)
-(* Proof. *)
-(*   intros. rewrite decode_ADRP in XS by lia. *)
-(*   unfold arm2il, arm_adrp2il, arm_varid in XS. remember (scast _ _ _). remember (_ mod _). *)
-(*   repeat case_match; *)
-(*   step XS; split; auto; simpl. subst' S. f_equal. subst. *)
-(*   rewrite !N.shiftl_mul_pow2, !N.shiftr_div_pow2. lia. *)
-(*   Search N.mul N.modulo. *)
-(*   rewrite <-N.Div0.add_mod_idemp_l. *)
-(*   Abort. *)
-(*   Goal forall a, (a mod 2^64 / 2^12 * 2^12) mod 2^64= (a /2^12 * 2^12) mod 2^64. *)
-(*   Proof. lia. *)
-(*   N.Div0 *)
-(*   remember 64. *)
-(*   subst. erewrite <-N.ldiff_ones_r, <-N.land_lnot_diag in S. *)
-(*   rewrite <-N_land_mod_pow2_moveout. *)
-(*   Search N.lnot N.modulo. *)
-(*   in S. ldiff_sub. ldiff_land_low2, <-(N.land_ones (N.land _ _)) in S. *)
-(*   Search N.shiftr N.modulo. rewrite <-xbits_equiv in S. *)
-(*   Search N.modulo N.shiftl. *)
-(*   Search xbits N.shiftl. *)
-(*   (* rewrite shiftl_sbop. shiftr_sbop. *) *)
-(*   rewrite <-N.ldiff_ones_r, <-(N.land_ones (N.ldiff _ _)). *)
-(*   erewrite ldiff_land_low2. *)
-(*   Search N.land N.ldiff. *)
-(*   Search N.shiftr N.modulo. *)
-(*   eqapply S. destruct XS; auto. *)
+  intros.
+  unfold Asm.POP2,Asm.LDP_post64 in XS. replace (Asm.bounded (asr 16 3) 7) with (Some 2%uint63) in XS.
+  simpl in XS. rewrite decode_LDP_STP in XS. simpl in XS. all: try lia.
+  2: admit.
+  unfold arm2il,arm_ldp2il in XS. simpl in XS.
+  destruct (♮Xt1 =? ♮31) eqn: one.
+  cbn in XS. rewrite NEQ in XS. cbn in XS.
+
+  - unfold arm_ldp2il_constr in XS. cbn in XS.
+  remember (_ << _).
+  remember (_ mod _) in XS.
+  remember (scast _ _ _ ).
+  remember (_ << _ mod _).
+  
+  apply Neqb_ok in one. 
+  rewrite one in XS.
+  cbn in XS. 
+  unfold arm_varid in XS. case_match. step XS.
+  remember (N.land _ _). rewrite AL in Heqn3. cbn in Heqn3.
+  replace (N.lnot 1 1) with 0 in Heqn3 by reflexivity. 
+  rewrite N.land_0_r in Heqn3. subst n3.
+  step XS. cbv in Heqn. cbv in Heqn1. subst n n1. cbv in Heqn2. subst n2. 
+  rewrite one. simpl arm_varid. destruct XS. assumption. 
+  repeat case_match. step XS. 
+  remember (N.land _ _). rewrite AL in Heqn3. cbn in Heqn3.
+  replace (N.lnot 1 1) with 0 in Heqn3 by reflexivity. 
+  rewrite N.land_0_r in Heqn3. subst n3.
+  step XS. cbv in Heqn. cbv in Heqn1. subst n n1. cbv in Heqn2. subst n2. 
+  rewrite one. kill_reg_cases XT XT2 NEQ one. exfalso.
+  pose proof (toN_lt32 _ XT2) as B.
+  rewrite H in B.  change (N.pos p3~1~1~1~1) with (16 * N.pos p3 + 15) in B.
+  lia. 
+  step XS. 
+  remember (N.land _ _). rewrite AL in Heqn3. cbn in Heqn3.
+  replace (N.lnot 1 1) with 0 in Heqn3 by reflexivity. 
+  rewrite N.land_0_r in Heqn3. subst n3.
+  step XS. cbv in Heqn. cbv in Heqn1. subst n n1. cbv in Heqn2. subst n2. 
+  rewrite one. simpl arm_varid. destruct XS. assumption. 
+
+  
+  
+  
+  rewrite <- two. cbn.
+  simpl in XS.
+
+
+  Locate arm_ldp2il_constr.
+  Print arm_ldp2il_constr.
+   
+
 
 Lemma tmask_ones:
   forall lsb width

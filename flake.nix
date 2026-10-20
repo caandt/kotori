@@ -98,15 +98,17 @@
         default = kotori;
       }
     );
+
     devShells = forAllSystems (
       system: let
         pkgs = import nixpkgs {inherit system;};
         kotori = self.packages.${system}.default;
       in {
         default = pkgs.mkShell {
-          inputsFrom = [kotori];
+          inputsFrom = [kotori];          # brings in the same rocq-core the build uses
           packages = [
-            kotori.coqPackages.coq
+            # removed: kotori.coqPackages.coq  (a second, different Rocq build)
+            pkgs.rocqPackages_9_1.vsrocq-language-server   # editor server, same Rocq
             kotori.ocamlPackages.utop
             pkgs.perf
           ];

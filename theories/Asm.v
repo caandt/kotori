@@ -72,3 +72,4 @@ Definition PUSH2 Xt1 Xt2 := STP_pre64 Xt1 Xt2 31 (-0x10) orelse 0.
 Definition POP2 Xt1 Xt2 := LDP_post64 Xt1 Xt2 31 (0x10) orelse 0.
 Definition EOR_lsr Rd Rn Rm shift :=
   Encode.EOR 1 1 Rm shift Rn Rd.
+
