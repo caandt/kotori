@@ -305,11 +305,7 @@ Section InstSelection.
         else Lst0
     | Iimm _ Sz3 r reloc =>
         let imm := resolve reloc in
-        if i' >> 46 =? imm >> 48 then
-          Lst3 (Asm.ADRP (i' land (0xffff_ffff>>2)) (imm land 0xffff_ffff) r orelse Asm.UDF)
-               (Asm.Encode.MOVK 1 2 ((imm >> 32) land 0xffff) r)
-               (Asm.Encode.MOVK 1 0 (imm land 0xffff) r)
-        else if imm >> 48 =? 0 then
+        if imm >> 48 =? 0 then
           Lst3 (Asm.Encode.MOVZ 1 2 ((imm >> 32) land 0xffff) r)
                (Asm.Encode.MOVK 1 1 ((imm >> 16) land 0xffff) r)
                (Asm.Encode.MOVK 1 0 (imm land 0xffff) r)
@@ -320,20 +316,20 @@ Section InstSelection.
     | Ib Sz1 (BL _) r =>
         (Lst1 <$> Asm.BL i' (resolve r>>2)) orelse (Lst1 Asm.UDF)
     | Ib Sz1 (Bcond _ cond) r =>
-        (Lst1 <$> Asm.Bcond i' (resolve r>>2) cond) orelse Lst0
+        (Lst1 <$> Asm.Bcond i' (resolve r>>2) (cond land 15)) orelse Lst0
     | Ib Sz1 (CBZ sf op _ Rt) r =>
-        (Lst1 <$> Asm.CBZ sf op i' (resolve r>>2) Rt) orelse Lst0
+        (Lst1 <$> Asm.CBZ (sf land 1) (op land 1) i' (resolve r>>2) (Rt land 31)) orelse Lst0
     | Ib Sz1 (TBZ b5 op b40 _ Rt) r =>
-        (Lst1 <$> Asm.TBZ b5 op b40 i' (resolve r>>2) Rt) orelse Lst0
+        (Lst1 <$> Asm.TBZ (b5 land 1) (op land 1) (b40 land 15) i' (resolve r>>2) (Rt land 31)) orelse Lst0
 
     | Ib Sz2 (Bcond _ cond) r =>
-        let inv := (Asm.Bcond i' (i'+2) (cond lxor 1)) orelse Asm.UDF in
+        let inv := (Asm.Bcond i' (i'+2) (cond lxor 1 land 15)) orelse Asm.UDF in
         (Lst2 inv <$> Asm.B (i'+1) (resolve r>>2)) orelse Lst0
     | Ib Sz2 (CBZ sf op _ Rt) r =>
-        let inv := (Asm.CBZ sf (b2i (is_zero op)) i' (i'+2) Rt) orelse Asm.UDF in
+        let inv := (Asm.CBZ (sf land 1) (b2i (is_zero op)) i' (i'+2) (Rt land 31)) orelse Asm.UDF in
         (Lst2 inv <$> Asm.B (i'+1) (resolve r>>2)) orelse Lst0
     | Ib Sz2 (TBZ b5 op b40 _ Rt) r =>
-        let inv := (Asm.TBZ b5 (b2i (is_zero op)) b40 i' (i'+2) Rt) orelse Asm.UDF in
+        let inv := (Asm.TBZ (b5 land 1) (b2i (is_zero op)) (b40 land 15) i' (i'+2) (Rt land 31)) orelse Asm.UDF in
         (Lst2 inv <$> Asm.B (i'+1) (resolve r>>2)) orelse Lst0
 
     | _ => Lst0

@@ -54,6 +54,10 @@ Tactic Notation "tif" "in" constr(H) := match type of H with context[if ?a then 
 Ltac fif := match goal with |- context[if ?a then _ else _] => replace a with false;[|symmetry] end.
 Tactic Notation "fif" "in" constr(H) := match type of H with context[if ?a then _ else _] => replace a with false in H;[|symmetry] end.
 Tactic Notation "forget" uconstr(x) := (let n := fresh "n" in set (n:=x) in *; clearbody n).
+Tactic Notation "simp" uconstr(x) :=
+  let X := fresh in
+  let H := fresh in
+  remember x as X eqn:H; cbv in H; subst X.
 
 Ltac revertall := repeat match goal with H: _ |- _ => revert H end.
 Lemma add_0_l: forall i, 0 + i = i. Proof. lia. Qed.

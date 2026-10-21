@@ -47,10 +47,10 @@ Definition CBZ sf op src dst Rt :=
 Definition TBZ b5 op b40 src dst Rt :=
   bounded (dst - src) 14 <&> λ imm14, Encode.TBZ b5 op b40 imm14 Rt.
 Definition ADR i imm Rd :=
-  let dist := imm - i<<2 in
-  bounded dist 21 <&> λ imm21, Encode.ADR (imm21:[0,2]) (imm21:[2,19]) Rd.
+  let dist := imm>>2 - i in
+  bounded dist 19 <&> λ imm19, Encode.ADR (imm land 3) (imm19) Rd.
 Definition ADRP i imm Rd :=
-  let dist := asr imm 12 - i>>10 in
+  let dist := imm>>12 - i>>10 in
   bounded dist 21 <&> λ imm21, Encode.ADRP (imm21:[0,2]) (imm21:[2,19]) Rd.
 Definition UDF := 0.
 Definition NOP := 0xd503201f.

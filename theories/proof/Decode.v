@@ -433,8 +433,8 @@ Qed. (*Qed*)
 Lemma decode_UBFX:
 (*alias: UBFM*)
 forall sf N immr imms Rn Rd,
-(toN immr) < 2^5 ->
-(toN imms) <2^5 ->
+(toN immr) < 2^6 ->
+(toN imms) <2^6 ->
 (toN N) < 2^1 ->
 (toN sf) < 2^1 ->
 (toN sf = toN N)->
