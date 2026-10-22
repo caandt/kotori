@@ -46,6 +46,7 @@ Record chunk A := C {
   ci: int;
   ct: ityp;
   cp: poltyp;
+  cl: bool;
   cd: A;
 }.
 Notation chunklist A := (list (chunk A)).
@@ -54,6 +55,7 @@ Arguments ci {_}.
 Arguments ct {_}.
 Arguments cp {_}.
 Arguments cd {_}.
+Arguments cl {_}.
 Arguments C {_}.
 
 Record args := {
@@ -81,7 +83,7 @@ Record data := {
   rets: list int;
   devs: list int;
 }.
-Definition setd{A B} (c: chunk A) (d: B) := C c.(cn) c.(ci) c.(ct) c.(cp) d.
+Definition setd{A B} (c: chunk A) (d: B) := C c.(cn) c.(ci) c.(ct) c.(cp) c.(cl) d.
 Notation chunkmap f l := (map (λ c, setd c (f c)) l).
 Definition instmapi{A} := @_mapi _ A instsize [].
 Notation chunkmapi rel f l := (chunkmap (λ c, instmapi (rel c.(ci)) f c.(cd)) l).
@@ -91,7 +93,7 @@ Section ChunkGeneration.
   Notation dsets := a.(dsets).
   Notation bi := a.(bi).
   Notation bi' := a.(bi').
-  Definition stage1 := mapi (λ idx n, C n (bi + idx) (decode n) (pol (bi + idx)) ()) a.(code).
+  Definition stage1 := let lastidx := len a.(code) - 1 in mapi (λ idx n, C n (bi + idx) (decode n) (pol (bi + idx)) (idx =? lastidx) ()) a.(code).
   Section InstRewriter.
     Variable c : chunk ().
     Notation n := c.(cn).
@@ -113,7 +115,7 @@ Section ChunkGeneration.
       end.
     Definition isfallthrough :=
       match c.(cp) with
-      | Pfallthru true | Pdirect true _ | Pignore => true
+      | Pfallthru true | Pdirect true _ | Pignore => negb c.(cl)
       | _ => false
       end.
     Definition isdirect f d :=
