@@ -362,6 +362,71 @@ Lemma fallthrough_not_last : forall (c:chunk unit), isfallthrough c=true -> c.(c
 Proof.
  intros [cn ci ct cp cl []] H. destruct cp as [b|b j| |lbl]; try destruct b; cbn in H; try discriminate; by destruct cl.
 Qed.
+(* Address materialization only falls through or raises an exception. *)
+Definition straightline l := Forall (fun inst => nonbranch (arm_decode (toN inst))) l.
+Lemma decoded_ADR_register : forall cn imm rd,
+ Decode.decode cn=Decode.ADR imm rd -> (toN rd<32)%N.
+Proof.
+ intros cn imm rd DEC.
+ unfold Decode.decode, Decode.dc_b, Decode.dc_dpi, Decode.dc_pcr,
+ Decode.dc_b_cond, Decode.dc_b_reg, Decode.dc_b_imm, Decode.dc_cb, Decode.dc_tb in DEC.
+ repeat match type of DEC with (if ?b then _ else _) = _ => destruct b eqn:?; try discriminate DEC end.
+ all: inversion DEC; subst rd.
+ all: rewrite I2N.inj_xb; apply xbits_bound.
+Qed.
+Lemma bounded_small : forall v w imm,
+ Asm.bounded v w=Some imm -> (toN w<63)%N -> (toN imm<2^(toN w))%N.
+Proof.
+ intros v w imm B W. unfold Asm.bounded in B.
+ destruct (_ && _) eqn:E; [|discriminate]. inversion B; subst imm.
+ rewrite I2N.inj_land,I2N.inj_ones.
+ rewrite N.mod_small; [|eapply N.lt_trans;[apply ones_bound|apply N.pow_lt_mono_r;lia]].
+ rewrite N.land_ones. apply N.mod_lt. lia.
+Qed.
+Lemma isel_Iimm_straightline : forall d ip relax k rd imm,
+ (toN rd<32)%N -> straightline (l3l (isel d ip (Iimm relax k rd imm))).
+Proof.
+ intros d ip relax k rd imm RD.
+ unfold straightline,isel. destruct k.
+ - destruct (_ =? _)%uint63 eqn:HIT; cbn -[xb Asm.Encode.ADRP Asm.Encode.ADR Asm.Encode.MOVZ Asm.Encode.MOVK resolve].
+   + unfold Asm.ADRP. destruct Asm.bounded eqn:B; cbn -[xb Asm.Encode.ADRP Asm.Encode.ADR Asm.Encode.MOVZ Asm.Encode.MOVK resolve]; [|constructor].
+     repeat match goal with |- Forall _ (_::_) => constructor | |- Forall _ [] => constructor end.
+     rewrite decode_ADRP; try (rewrite I2N.inj_xb;apply xbits_bound); try exact RD.
+     exact I.
+   + unfold Asm.ADR. destruct Asm.bounded eqn:B; cbn -[xb Asm.Encode.ADRP Asm.Encode.ADR Asm.Encode.MOVZ Asm.Encode.MOVK resolve]; [|constructor].
+     repeat match goal with |- Forall _ (_::_) => constructor | |- Forall _ [] => constructor end.
+     rewrite decode_ADR; [exact I| | |exact RD].
+     * exact (bounded_small _ 19 _ B ltac:(lia)).
+     * rewrite I2N.inj_land. change (N.land (toN (resolve d imm)) (N.ones 2)<2^2)%N. rewrite N.land_ones. apply N.mod_lt. lia.
+ - destruct (fits _ _); cbn -[xb Asm.Encode.ADRP Asm.Encode.ADR Asm.Encode.MOVZ Asm.Encode.MOVK resolve].
+   + unfold Asm.ADRP. destruct Asm.bounded eqn:B; cbn -[xb Asm.Encode.ADRP Asm.Encode.ADR Asm.Encode.MOVZ Asm.Encode.MOVK resolve].
+     * repeat match goal with |- Forall _ (_::_) => constructor | |- Forall _ [] => constructor end.
+       -- rewrite decode_ADRP; try (rewrite I2N.inj_xb;apply xbits_bound); try exact RD. exact I.
+       -- rewrite decode_MOVK; [exact I| |exact RD|lia|lia|lia].
+          rewrite I2N.inj_land. change (N.land (toN (resolve d imm)) (N.ones 16)<2^16)%N. rewrite N.land_ones. apply N.mod_lt. lia.
+     * repeat match goal with |- Forall _ (_::_) => constructor | |- Forall _ [] => constructor end.
+       -- exact I.
+       -- rewrite decode_MOVK; [exact I| |exact RD|lia|lia|lia].
+          rewrite I2N.inj_land. change (N.land (toN (resolve d imm)) (N.ones 16)<2^16)%N. rewrite N.land_ones. apply N.mod_lt. lia.
+   + destruct (_ =? _)%uint63 eqn:HIT; cbn -[xb Asm.Encode.ADRP Asm.Encode.ADR Asm.Encode.MOVZ Asm.Encode.MOVK resolve]; [|constructor].
+     repeat match goal with |- Forall _ (_::_) => constructor | |- Forall _ [] => constructor end.
+     * rewrite decode_MOVZ; [exact I| |exact RD|lia|lia|lia].
+       apply Uint63.eqb_correct in HIT. pose proof (f_equal toN HIT) as HIGH.
+       rewrite I2N.inj_lsr in HIGH |- *.
+       change ((toN (resolve d imm)>>32)=0)%N in HIGH.
+       rewrite N.shiftr_div_pow2 in HIGH |- *. lia.
+     * rewrite decode_MOVK; [exact I| |exact RD|lia|lia|lia].
+       rewrite I2N.inj_land. change (N.land (toN (resolve d imm)) (N.ones 16)<2^16)%N. rewrite N.land_ones. apply N.mod_lt. lia.
+ - destruct (_ =? _)%uint63 eqn:HIT; cbn -[xb Asm.Encode.ADRP Asm.Encode.ADR Asm.Encode.MOVZ Asm.Encode.MOVK resolve]; [|constructor].
+   repeat match goal with |- Forall _ (_::_) => constructor | |- Forall _ [] => constructor end.
+   + rewrite decode_MOVZ; [exact I| |exact RD|lia|lia|lia].
+     rewrite I2N.inj_land. change (N.land (toN (resolve d imm >> 32)) (N.ones 16)<2^16)%N. rewrite N.land_ones. apply N.mod_lt. lia.
+   + rewrite decode_MOVK; [exact I| |exact RD|lia|lia|lia].
+     rewrite I2N.inj_land. change (N.land (toN (resolve d imm >> 16)) (N.ones 16)<2^16)%N. rewrite N.land_ones. apply N.mod_lt. lia.
+   + rewrite decode_MOVK; [exact I| |exact RD|lia|lia|lia].
+     rewrite I2N.inj_land. change (N.land (toN (resolve d imm)) (N.ones 16)<2^16)%N. rewrite N.land_ones. apply N.mod_lt. lia.
+Qed.
+
 Section Soundness.
   (* rewriter input *)
   Variable a : args.
@@ -1230,6 +1295,47 @@ Section Soundness.
     Qed.
 
 
+    (* Any chunk consisting of an abort branch reaches the abort target or
+       raises an exception if the branch cannot be encoded. *)
+    Lemma chunk_abort:
+      (exists k, c1.(cd) = [Ib k (Decode.BL 0) (Rrt 0)]) -> Goal.
+    Proof.
+      intros ABORT s VS.
+      destruct ABORT as [k CD1].
+      pose proof no_lst0 as NL.
+      rewrite R2 in NL. cbn in NL. rewrite CD1 in NL.
+      destruct k; try (cbn in NL; inversion NL; contradiction).
+      assert (REL : d.(Rewrite.rel) c1.(ci)=ofN i') by exact (rel_start n c1 NTH).
+      assert (CODE : c3.(cd)=[Asm.BL (ofN i') (resolve d (Rrt 0)>>2) orelse Asm.UDF]).
+      { rewrite R3,R2. cbn. rewrite CD1,REL. unfold instmapi. rewrite mapi_cons. cbn.
+        change (l3l ((option_map Lst1 (Asm.BL (ofN i') (resolve d (Rrt 0)>>2))) orelse (Lst1 Asm.UDF)) ++ [] = [Asm.BL (ofN i') (resolve d (Rrt 0)>>2) orelse Asm.UDF]).
+        destruct (Asm.BL (ofN i') (resolve d (Rrt 0)>>2)); reflexivity. }
+      assert (TARGET : toN (resolve d (Rrt 0)>>2)=toN d.(Rewrite.ai)).
+      { pose proof (ai_bound a d D) as AI. unfold resolve. nify.
+        rewrite N.shiftl_mul_pow2,N.shiftr_div_pow2. lia. }
+      assert (IPB : (i'<2^62)%N).
+      { pose proof noovfl as NO.
+        pose proof (nsum_firstn_le (cmap nlen cnks) n).
+        unfold i'. rewrite nlen_flat,<-!firstn_map. lia. }
+      assert (TARGETB : (resolve d (Rrt 0)>>2 <? 1<<62=true)%uint63) by (pose proof (ai_bound a d D);lia).
+      unfold Asm.BL in CODE.
+      destruct (Asm.bounded ((resolve d (Rrt 0)>>2)-ofN i') 26) as [imm|] eqn:IMM; cbn in CODE.
+      + eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.BL imm))); [exact VS|rewrite CODE;reflexivity|].
+        intros ctx s1 x XS MI.
+        apply (ExecBL IMM) in XS as [ST EXIT].
+        rewrite N.add_0_r in EXIT. fold i' in EXIT.
+        rewrite plusminus62 in EXIT by assumption.
+        rewrite TARGET in EXIT. subst x. split.
+        * cbn [exitof PermittedStep]. repeat eexists. apply AbortEdge.
+        * apply KHere; [|split;[exact MI|exact I]].
+          left. unfold is_ext_addr.
+          assert (EXT : ((toN d.(arg).(Rewrite.bi')+nlen(flat_map cd cnks))*4 <=? toN d.(Rewrite.ai)*4)%N =true) by (apply N.leb_le;pose proof abort_after_code;lia).
+          rewrite EXT,orb_true_r. exact I.
+      + eapply KStep with (j:=0%nat) (q:=arm_decode (toN Asm.UDF)); [exact VS|rewrite CODE;reflexivity|].
+        intros ctx s1 x XS MI. apply ExecUDF in XS as [ST EXIT]. subst x.
+        split; [exact I|apply KHere; [exact I|split;[exact MI|exact I]]].
+    Qed.
+
     Lemma chunk_ignore : c0.(ct)=Decode.ignore ->
      forall s, store_invs s -> K_nib false (Addr ((i'+0)*4)) s.
     Proof.
@@ -1279,42 +1385,93 @@ Section Soundness.
            change (Is_true (startschunk cnks (toN d.(arg).(Rewrite.bi')) ((i'+1)*4))).
            rewrite POS,startschunk_at; [exact I|rewrite (num_cnks d cnks RW);exact NEXT].
      (* The final chunk and restrictive policies use the abort path. *)
-     - assert (CD1 : exists k, c1.(cd)=[Ib k (Decode.BL 0) (Rrt 0)]).
+     - apply chunk_abort; [|exact VS].
+       rewrite R1. cbn. unfold rw_inst. rewrite CT,FT.
+       destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity.
+    Qed.
+
+    Lemma chunk_straightline : isfallthrough c0=true -> straightline c ->
+     forall s, store_invs s -> K_nib false (Addr ((i'+0)*4)) s.
+    Proof.
+     intros FT SL.
+     assert (META : metadata c1=c0).
+     { rewrite R1. unfold change_szs,metadata,setd. destruct c0 as [cn ci ct cp cl []]. reflexivity. }
+     pose proof (source_nth a d D n c1 NTH) as (_&_&POL&_&_).
+     assert (POL0 : c0.(cp)=d.(arg).(Rewrite.pol) c0.(ci)).
+     { rewrite <-META. cbn. rewrite (arg_same a d D). exact POL. }
+     assert (NL : c1.(cl)=false).
+     { change ((metadata c1).(cl)=false). rewrite META. exact (fallthrough_not_last c0 FT). }
+     pose proof (not_last_has_next a d D n c1 NTH NL) as NEXT.
+     assert (POS : i'+nlen c=toN d.(arg).(Rewrite.bi')+nlen(flat_map cd(take(S n)cnks))).
+     { unfold i'. rewrite !nlen_flat,<-!firstn_map.
+       erewrite nsum_take_Sn' by (rewrite !ith_map,NTH2;reflexivity). lia. }
+     assert (IREL : irel (i'+nlen c)=toN c0.(ci)+1).
+     { rewrite POS,(following_irel n c3 NTH2 NEXT). rewrite R3,R2,R1. reflexivity. }
+     assert (PE : PermittedEdge (toN c0.(ci)) (toN c0.(ci)+1)).
+     { unfold isfallthrough in FT. destruct c0.(cp) as [b|b target| |lbl] eqn:CP; try destruct b; simpl in FT; try discriminate.
+       - eqapply (FallthroughEdge c0.(ci) (eq_sym POL0));lia.
+       - eqapply (FallthroughEdge2 c0.(ci) target (eq_sym POL0));lia.
+       - apply IgnoreEdge. symmetry. exact POL0. }
+     assert (ENDPOINT : forall s, store_invs s -> K_ni (Addr ((i'+nlen c)*4)) s).
+     { intros s VS. apply KHere; [|exact VS]. right.
+       unfold is_chunk_start_addr. rewrite POS,startschunk_at; [exact I|rewrite(num_cnks d cnks RW);exact NEXT]. }
+     assert (STEPS : forall m j b s, (m+j=length c)%nat -> (0<m)%nat ->
+       store_invs s -> K_nib b (Addr((i'+j)*4)) s).
+     { induction m as [|m IH]; intros j b s LEN NZ VS; [lia|].
+       assert (J : (j<length c)%nat) by lia.
+       destruct (ith c j) as [v|] eqn:V; [|apply ith_None in V;lia].
+       eapply KStep with (j:=j) (q:=arm_decode (toN v)); [exact VS|change (ith (map (arm_decode ∘ toN) c) j=Some(arm_decode(toN v)));rewrite ith_map,V;reflexivity|].
+       intros ctx s1 x XS MI.
+       assert (NB : nonbranch(arm_decode(toN v))).
+       { unfold straightline in SL. apply Forall_forall with(x:=v) in SL; [exact SL|eapply ith_In,V]. }
+       pose proof (nojumps_exec _ _ _ _ _ _ XS (nonbranch_arm2il _ _ NB)) as NJ.
+       destruct x as [[addr|exc]|]; [contradiction| |].
+       - split; [exact I|apply KHere;[exact I|split;[exact MI|exact I]]].
+       - split.
+         + cbn [exitof PermittedStep]. repeat eexists.
+           destruct (Nat.lt_dec (S j) (length c)) as [MORE|DONE].
+           * apply IntraChunkEdge. rewrite !irel_in by assumption. reflexivity.
+           * apply TranslatedEdge.
+             rewrite (irel_in j J).
+             replace (N.of_nat(S j)) with (nlen c) by (rewrite nlen_length;lia).
+             rewrite IREL. exact PE.
+         + destruct m as [|m].
+           * change (K_ni (Addr ((i'+N.of_nat(S j))*4)) (reset_temps s s1)).
+             replace (N.of_nat(S j)) with (nlen c) by (rewrite nlen_length;lia).
+             apply ENDPOINT. split;[exact MI|exact I].
+           * apply (IH (S j) true); [lia|lia|split;[exact MI|exact I]]. }
+     intros s VS. apply (STEPS (length c) 0%nat false s); [lia| |exact VS].
+     pose proof (nonempty_cnks d cnks RW) as NE.
+     apply Forall_forall with(x:=c3) in NE; [|eapply ith_In,NTH2].
+     unfold Nonempty in NE. clear -NE. destruct c3.(cd); [contradiction|simpl;lia].
+    Qed.
+    Lemma chunk_ADR : forall imm rd, c0.(ct)=Decode.ADR imm rd ->
+     forall s, store_invs s -> K_nib false (Addr((i'+0)*4)) s.
+    Proof.
+     intros imm rd CT.
+     destruct (isfallthrough c0) eqn:FT.
+     - apply chunk_straightline; [exact FT|].
+       assert (RD : (toN rd<32)%N).
+       { pose proof (source_nth a d D n c1 NTH) as (_&DEC&_&_&_).
+         rewrite R1 in DEC. cbn in DEC. rewrite CT in DEC.
+         exact (decoded_ADR_register _ imm rd DEC). }
+       assert (CD1 : exists k, c1.(cd)=[Iimm true k rd (Rimm ((c0.(ci)<<2)+sext imm 21))]).
        { rewrite R1. cbn. unfold rw_inst. rewrite CT,FT.
-         destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity. }
+         destruct sz.(cd) as [|x xs]; [exists Sz2|exists(instsz x)];reflexivity. }
        destruct CD1 as [k CD1].
-       pose proof no_lst0 as NL.
-       rewrite R2 in NL. cbn in NL. rewrite CD1 in NL.
-       destruct k; try (cbn in NL; inversion NL; contradiction).
-       assert (REL : d.(Rewrite.rel) c1.(ci)=ofN i') by exact (rel_start n c1 NTH).
-       assert (CODE : c3.(cd)=[Asm.BL (ofN i') (resolve d (Rrt 0)>>2) orelse Asm.UDF]).
-       { rewrite R3,R2. cbn. rewrite CD1,REL. unfold instmapi. rewrite mapi_cons. cbn.
-         change (l3l ((option_map Lst1 (Asm.BL (ofN i') (resolve d (Rrt 0)>>2))) orelse (Lst1 Asm.UDF)) ++ [] = [Asm.BL (ofN i') (resolve d (Rrt 0)>>2) orelse Asm.UDF]).
-         destruct (Asm.BL (ofN i') (resolve d (Rrt 0)>>2)); reflexivity. }
-       assert (TARGET : toN (resolve d (Rrt 0)>>2)=toN d.(Rewrite.ai)).
-       { pose proof (ai_bound a d D) as AI. unfold resolve. nify.
-         rewrite N.shiftl_mul_pow2,N.shiftr_div_pow2. lia. }
-       assert (IPB : (i'<2^62)%N).
-       { pose proof noovfl as NO.
-         pose proof (nsum_firstn_le (cmap nlen cnks) n).
-         unfold i'. rewrite nlen_flat,<-!firstn_map. lia. }
-       assert (TARGETB : (resolve d (Rrt 0)>>2 <? 1<<62=true)%uint63) by (pose proof (ai_bound a d D);lia).
-       unfold Asm.BL in CODE.
-       destruct (Asm.bounded ((resolve d (Rrt 0)>>2)-ofN i') 26) as [imm|] eqn:IMM; cbn in CODE.
-       + eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.BL imm))); [exact VS|rewrite CODE;reflexivity|].
-         intros ctx s1 x XS MI.
-         apply (ExecBL IMM) in XS as [ST EXIT].
-         rewrite N.add_0_r in EXIT. fold i' in EXIT.
-         rewrite plusminus62 in EXIT by assumption.
-         rewrite TARGET in EXIT. subst x. split.
-         * cbn [exitof PermittedStep]. repeat eexists. apply AbortEdge.
-         * apply KHere; [|split;[exact MI|exact I]].
-           left. unfold is_ext_addr.
-           assert (EXT : ((toN d.(arg).(Rewrite.bi')+nlen(flat_map cd cnks))*4 <=? toN d.(Rewrite.ai)*4)%N =true) by (apply N.leb_le;pose proof abort_after_code;lia).
-           rewrite EXT,orb_true_r. exact I.
-       + eapply KStep with (j:=0%nat) (q:=arm_decode (toN Asm.UDF)); [exact VS|rewrite CODE;reflexivity|].
-         intros ctx s1 x XS MI. apply ExecUDF in XS as [ST EXIT]. subst x.
-         split; [exact I|apply KHere; [exact I|split;[exact MI|exact I]]].
+       rewrite R3,R2. cbn. rewrite CD1.
+       unfold instmapi. rewrite mapi_cons. cbn -[isel].
+       rewrite app_nil_r. apply isel_Iimm_straightline. exact RD.
+     - apply chunk_abort.
+       rewrite R1. cbn. unfold rw_inst. rewrite CT,FT.
+       destruct sz.(cd) as [|x xs];[exists Sz1|exists(instsz x)];reflexivity.
+    Qed.
+
+    Lemma chunk_invalid: c0.(ct) = Decode.invalid -> Goal.
+    Proof.
+      intro CT. apply chunk_abort.
+      rewrite R1. cbn. unfold rw_inst. rewrite CT.
+      destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity.
     Qed.
 
     Lemma chunk_cases: Goal.
@@ -1322,12 +1479,16 @@ Section Soundness.
       intros.
       assert (IGNORE: c0.(ct) = Decode.ignore -> K_nib false (Addr 4(i'+0)) s).
       { intro IGN. by apply chunk_ignore. }
+      assert (INVALID: c0.(ct) = Decode.invalid -> K_nib false (Addr 4(i'+0)) s).
+      { intro INV. by apply chunk_invalid. }
+      assert (ADR: forall imm rd, c0.(ct) = Decode.ADR imm rd -> K_nib false (Addr 4(i'+0)) s).
+      { intros imm rd CT. by apply (chunk_ADR imm rd). }
       unfold change_szs, setd in R1, R2; cbn in R1, R2.
       remember (zip_withl _ _ _) eqn:C. remember zip_withl. forget (map _ _).
       destruct c0, cd, ct; cbn in C, R2; subst l. simpl in R1.
       { by apply IGNORE. }
-      admit.
-      admit.
+      { by eapply INVALID. }
+      { by eapply ADR. }
       admit.
       admit.
       admit.
