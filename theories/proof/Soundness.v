@@ -1,7 +1,7 @@
 From coqutil Require Import Tactics.fwd autoforward.
 From Stdlib Require Import ZArith ZifySint63.
 From stdpp Require Import list list_basics.
-From Kotori Require Import Rewrite proof.Util proof.Rewrite proof.Decode proof.Exec proof.I2N.
+From Kotori Require Import Rewrite proof.Util proof.Rewrite proof.Decode proof.Exec proof.ControlFlow proof.I2N.
 From Picinae Require Import armv8 armv8_lifter_rework.
 Import ARM8Arch.
 
@@ -237,6 +237,16 @@ Proof.
   intros. unfold noassign.
   repeat first [done | apply varid_not_awrite | case_match | constructor | match goal with |- allassigns _ ?a => unfold_rec a end ].
 Qed.
+Lemma varid_not_uxn:
+  forall n, arm_varid n <> UXN.
+Proof.
+  intros. unfold arm_varid. by repeat case_match.
+Qed.
+Lemma noassign_uxn_arm2il {a i}: noassign UXN (arm2il a i).
+Proof.
+  intros. unfold noassign.
+  repeat first [done | apply varid_not_uxn | case_match | constructor | match goal with |- allassigns _ ?a => unfold_rec a end ].
+Qed.
 Definition nonwritable_byte_arm2il {c s a i c' s' x j w}
   (XS: exec_stmt c s (arm2il a i) c' s' x)
   (NW: N.testbit (s A_WRITE) j = false)
@@ -251,6 +261,106 @@ Proof.
   rewrite <-getbyte_mod_l, <-(getbyte_mod_l (s' _)).
   eapply nonwritable_byte_arm2il. apply XS. apply NW. now rewrite msub_mod_l by easy.
   lia with (N.mod_lt a' (2^w)).
+Qed.
+Lemma mapi_length:
+  forall A B sz (acc: list B) i f (l: list A),
+  length (_mapi sz acc i f l) = (length acc + length l)%nat.
+Proof.
+  intros A B sz acc i f l. revert acc i. induction l; intros; simpl.
+  - rewrite <-rev_alt, length_rev. lia.
+  - rewrite IHl. simpl. lia.
+Qed.
+Definition metadata {A} (c:chunk A) := setd c ().
+Lemma metadata_relax : forall a l,
+ map metadata (relax a l) = map metadata l.
+Proof.
+ intros a l. unfold relax. destruct makerel. rewrite map_map.
+ apply map_ext. intros []. reflexivity.
+Qed.
+Lemma metadata_stage3 : forall a l,
+ map metadata (stage3 a l) = map metadata l.
+Proof.
+ intros. unfold stage3. induction (nrelax a); [reflexivity|].
+ simpl. rewrite metadata_relax. exact IHn.
+Qed.
+Lemma metadata_stage2 : forall a l,
+ map metadata (stage2 a l) = l.
+Proof.
+ intros. unfold stage2. rewrite map_map.
+ induction l as [|[] l IH]; cbn; [reflexivity|]. destruct cd. by rewrite IH.
+Qed.
+Section SourceMetadata.
+Variables (a:args) (d:data).
+Variable D: rw_hook a id = Some d.
+Lemma chunks_metadata : map metadata d.(chunks) = stage1 a.
+Proof.
+ repeat so D. rewrite <-D. simpl. rewrite metadata_stage3, metadata_stage2. reflexivity.
+Qed.
+Lemma arg_same : d.(arg)=a.
+Proof. repeat so D. rewrite <-D. reflexivity. Qed.
+Lemma source_bound : (toN a.(Rewrite.bi) + N.of_nat (length a.(code)) < 2^63)%N.
+Proof.
+ assert (F: forall l k, fold_left (fun n (_:int)=>N.succ n) l k = (k + N.of_nat (length l))%N).
+ { induction l; intros; cbn; [lia|]. rewrite IHl. lia. }
+ repeat so D. unfold source_fits in *. rewrite F in *. apply N.ltb_lt in Heqb. exact Heqb.
+Qed.
+Lemma ai_bound : (toN d.(Rewrite.ai)<2^61)%N.
+Proof. repeat so D. rewrite <-D. simpl. nify. lia. Qed.
+Lemma chunks_count : length d.(chunks) = length a.(code).
+Proof.
+ rewrite <-(length_map metadata), chunks_metadata.
+ unfold stage1, mapi. rewrite mapi_length. reflexivity.
+Qed.
+Lemma source_nth : forall n c,
+ ith d.(chunks) n = Some c ->
+ c.(ci) = (a.(Rewrite.bi) + ofNat n)%uint63 /\
+ Decode.decode c.(cn) = c.(ct) /\
+ c.(cp) = a.(Rewrite.pol) c.(ci) /\
+ c.(cl) = (ofNat n =? len a.(code)-1)%uint63 /\
+ (n < length a.(code))%nat.
+Proof.
+ intros n c H.
+ assert (B : (n < length d.(chunks))%nat) by (apply ith_Some; congruence). rewrite chunks_count in B.
+ pose proof (f_equal (option_map metadata) H) as M.
+ rewrite <-ith_map,chunks_metadata,ith_nth_error in M.
+ unfold stage1 in M. apply mapi_nth with (d:=0%uint63) in M.
+ unfold metadata,setd in M. inversion M. repeat split; congruence.
+Qed.
+Lemma not_last_has_next : forall n c,
+ ith d.(chunks) n=Some c -> c.(cl)=false -> (S n < length d.(chunks))%nat.
+Proof.
+ intros n c N CL.
+ destruct (source_nth n c N) as (CI&DEC&CP&LAST&LT).
+ rewrite chunks_count. rewrite LAST in CL.
+ pose proof source_bound as B.
+ rewrite len_length in CL by lia.
+ destruct (Nat.eq_dec (S n) (length a.(code))) as [E|E]; [|lia].
+ assert (ofNat n = (ofNat (length a.(code))-1)%uint63) as EQ by lia.
+ rewrite EQ,Uint63.eqb_refl in CL. discriminate.
+Qed.
+End SourceMetadata.
+Lemma startschunk_at : forall l b n,
+ (n < length l)%nat -> startschunk l b ((b+nlen(flat_map cd (take n l)))*4) = true.
+Proof.
+ induction l as [|c l IH]; intros b n LT; [cbn in LT;lia|].
+ destruct n; simpl; [by rewrite N.add_0_r,N.eqb_refl|].
+ case_match; [reflexivity|].
+ rewrite !nlen_length,length_app,Nat2N.inj_add.
+ replace ((b+(N.of_nat (length c.(cd))+N.of_nat (length (flat_map cd (take n l)))))*4)
+ with ((b+N.of_nat(length c.(cd))+nlen(flat_map cd(take n l)))*4)
+ by (rewrite nlen_length;lia).
+ apply IH. simpl in LT. lia.
+Qed.
+Lemma pad_to_ge10 : forall x, (toN x<2^62)%N -> (toN x<=toN(pad_to x 10))%N.
+Proof.
+ intros x LT.
+ assert (P : (toN (padding x 10) <= 1023)%N).
+ { unfold padding. nify. apply N.land_le_r. }
+ unfold pad_to. nify. lia.
+Qed.
+Lemma fallthrough_not_last : forall (c:chunk unit), isfallthrough c=true -> c.(cl)=false.
+Proof.
+ intros [cn ci ct cp cl []] H. destruct cp as [b|b j| |lbl]; try destruct b; cbn in H; try discriminate; by destruct cl.
 Qed.
 Section Soundness.
   (* rewriter input *)
@@ -351,7 +461,9 @@ Section Soundness.
     (* chunk bytes are nonwritable *)
     xbits (s A_WRITE) (bi' * 4) (bi' * 4 + (lensC cnks) * 4) = 0 ∧
     (* table bytes are nonwritable *)
-    xbits (s A_WRITE) (bti * 4) (bti * 4 + (lensT tc) * 8) = 0.
+    xbits (s A_WRITE) (bti * 4) (bti * 4 + (lensT tc) * 8) = 0 ∧
+    (* chunk bytes are executable *)
+    xbits (s UXN) (bi' * 4) (bi' * 4 + (lensC cnks) * 4) = 0.
   Definition flag_invs (s:store) := True.
   Definition store_invs s := mem_invs s ∧ flag_invs s.
   Definition hdP P (t: trace) :=
@@ -484,13 +596,130 @@ Section Soundness.
     case_match; try done.
     apply IHl in H. rewrite nfls. lia.
   Qed.
+  Lemma rw_inst_length:
+    forall c, (length (rw_inst a c) <= 9)%nat.
+  Proof.
+    intros. unfold rw_inst, rw_indirect, setlr.
+    destruct c.(ct); repeat case_match; simpl; lia.
+  Qed.
+  Lemma chunks_length:
+    Forall (λ c, (length c.(cd) <= 9)%nat) d.(chunks).
+  Proof.
+    repeat so D. rewrite <-D. simpl.
+    unfold stage3, id. generalize a.(nrelax). intro n. induction n.
+    - unfold stage2. apply Forall_map, Forall_forall.
+      intros. simpl. apply rw_inst_length.
+    - simpl. unfold relax. destruct makerel.
+      apply Forall_map. eapply Forall_impl; [|exact IHn].
+      intros c Hc. simpl. unfold instmapi. rewrite mapi_length. simpl. exact Hc.
+  Qed.
+  Lemma cnks_length:
+    Forall (λ c, (length c.(cd) <= 27)%nat) cnks.
+  Proof.
+    assert (L3: forall l, (length (concat (map l3l l)) <= 3 * length l)%nat).
+    { induction l; simpl; [lia|]. rewrite length_app. destruct a0; simpl; lia. }
+    rewrite (chunk_equiv _ _ RW), Forall_map.
+    eapply Forall_impl; [|exact chunks_length].
+    intros c Hc. simpl in *. etransitivity; [apply L3|].
+    unfold instmapi. rewrite mapi_length. simpl. lia.
+  Qed.
   Lemma noovfl: NoOverflow bi' cnks.
   Proof.
+    pose proof cnks_length as CL.
     repeat so RW. case_match; try done. apply sumltlt in Heqb0. subst' RW.
     rewrite map_map in *. simpl in Heqb0.
     remember (map _ _). replace (map _ _) with l. lia. subst.
-    apply map_ext_in. intros. rewrite len_nlen. admit.
-  Admitted.
+    apply map_ext_in. intros c IN. rewrite len_nlen, to_of_N.
+    rewrite N.mod_small; [reflexivity|].
+    rewrite Forall_forall in CL. apply CL in IN.
+    rewrite nlen_length. lia.
+  Qed.
+  Lemma table_fits_sound:
+    forall b tables, table_fits b tables = true ->
+    ♮b * 4 + lensT tables * 8 < 2^64.
+  Proof.
+    assert (COUNT: forall (l: list int) n,
+      fold_left (λ n (_: int), (n + 2)%N) l n = n + nlen l * 2).
+    { induction l; intros; simpl; [lia|]. rewrite IHl. lia. }
+    assert (TABLES: forall tables n,
+      fold_left (λ n t,
+        fold_left (λ n (_: int), (n + 2)%N) t.(tblcontent) n)
+        tables n = n + lensT tables * 2).
+    { induction tables; intros; simpl; [lia|]. rewrite COUNT, IHtables.
+      rewrite !nlen_length, length_app. lia. }
+    intros b tables FIT. unfold table_fits in FIT.
+    rewrite TABLES in FIT. apply N.ltb_lt in FIT. unfold toN. lia.
+  Qed.
+  Lemma tables_noovfl:
+    bti * 4 + lensT tc * 8 < 2^64.
+  Proof.
+    repeat so D. rewrite <-D. simpl. apply table_fits_sound. assumption.
+  Qed.
+  Lemma output_source_nth : forall n c,
+   ith cnks n=Some c -> c.(ci)=(a.(Rewrite.bi)+ofNat n)%uint63.
+  Proof.
+   intros. rewrite <-(arg_same a d D). apply (nth_ci d cnks RW noovfl); [|by rewrite <-ith_nth_error].
+   intros m c0 N. rewrite <-ith_nth_error in N.
+   rewrite (arg_same a d D). exact (proj1 (source_nth a d D m c0 N)).
+  Qed.
+  Lemma following_irel : forall n c,
+   ith cnks n=Some c -> (S n < length d.(chunks))%nat ->
+   irel (bi'+nlen(flat_map cd (take (S n) cnks))) = (toN c.(ci)+1)%N.
+  Proof.
+   intros n c N LT.
+   assert (LN : (S n < length cnks)%nat) by (rewrite (num_cnks d cnks RW);lia).
+   assert (NEXT : exists c', ith cnks (S n)=Some c') by (destruct (ith cnks (S n)) eqn:E; [eauto|apply ith_None in E;lia]).
+   destruct NEXT as [c' NEXT].
+   unfold irel. rewrite !nlen_flat,<-!firstn_map,findchunk_in with (d:=C[nil]).
+   - rewrite (ith_nth _ _ _ _ NEXT). simpl.
+     rewrite (output_source_nth _ _ N),(output_source_nth _ _ NEXT).
+     pose proof (source_bound a d D). rewrite (chunks_count a d D) in LT. nify. lia.
+   - exact (nonempty_cnks d cnks RW).
+   - exact LN.
+  Qed.
+  Lemma rel_start : forall n c,
+   ith d.(chunks) n=Some c -> d.(Rewrite.rel) c.(ci) = ofN (bi'+nlen(flat_map cd (take n cnks))).
+  Proof.
+   intros n c N.
+   pose proof (source_nth a d D n c N) as (CI&DEC&POL&LAST&LT).
+   pose proof (source_bound a d D) as SB.
+   pose proof (chunks_count a d D) as CC.
+   assert (CL : Forall (fun c=> (length c.(cd)<100)%nat) cnks).
+   { eapply Forall_impl; [|apply cnks_length]. intros c0 C0. cbn beta in C0 |- *. lia. }
+   pose proof (correct_lengths d cnks RW CL) as LENS.
+   assert (MR : (d.(Rewrite.rel),d.(Rewrite.ai))=makerel a d.(chunks)).
+   { repeat so D. rewrite <-D. reflexivity. }
+   pose proof (f_equal fst MR) as REL.
+   unfold makerel in REL. cbn beta iota zeta delta [fst] in REL.
+   rewrite REL, CI.
+   assert (L : (a.(Rewrite.bi) <=? a.(Rewrite.bi)+ofNat n = true)%uint63) by lia.
+   assert (U : (a.(Rewrite.bi)+ofNat n <? a.(Rewrite.bi)+len d.(chunks)=true)%uint63).
+   { rewrite len_length,CC; lia. }
+   rewrite L,U. cbn.
+   replace (a.(Rewrite.bi)+ofNat n-a.(Rewrite.bi))%uint63 with (ofNat n) by lia.
+   rewrite csum_def,isumn.
+   replace (toNat (ofNat n)) with n by lia.
+   rewrite <-firstn_map,<-LENS,nlen_flat,<-firstn_map.
+   rewrite (arg_same a d D).
+   nify. fold (toN a.(Rewrite.bi')). rewrite !to_of_N,<-firstn_map,N.Div0.add_mod_idemp_r. reflexivity.
+  Qed.
+  Lemma ai_layout : d.(Rewrite.ai)=pad_to (csum a.(Rewrite.bi') (map chunksize d.(chunks)) (len d.(chunks))) 10.
+  Proof. repeat so D. rewrite <-D. reflexivity. Qed.
+  Lemma abort_after_code : (toN d.(arg).(Rewrite.bi') + nlen(flat_map cd cnks) <= toN d.(Rewrite.ai))%N.
+  Proof.
+   pose proof noovfl as NO.
+   assert (CL : Forall (fun c=> (length c.(cd)<100)%nat) cnks).
+   { eapply Forall_impl; [|apply cnks_length]. intros c C. cbn beta in C |- *. lia. }
+   pose proof (correct_lengths d cnks RW CL) as LENS.
+   assert (LEN : (nlen d.(chunks)<2^62)%N) by (exact (maxchunks d cnks RW NO CL)).
+   rewrite ai_layout, csum_def,firstn_all2.
+   - rewrite isumn, (arg_same a d D), !nlen_flat in *.
+     rewrite <-LENS.
+     eapply N.le_trans; [|apply pad_to_ge10].
+     + rewrite I2N.inj_add,to_of_N,N.Div0.add_mod_idemp_r,N.mod_small by lia. lia.
+     + rewrite I2N.inj_add,to_of_N,N.Div0.add_mod_idemp_r,N.mod_small by lia. exact NO.
+   - rewrite nlen_length in LEN. rewrite len_length,length_map; lia.
+  Qed.
   Section ChunkCases.
     Variable n : nat.
     Variable c0 : chunk ().
@@ -556,6 +785,16 @@ Section Soundness.
       - by rewrite ith_map, NTH2.
       - by rewrite flat_map_concat_map in H1.
     Qed.
+    Lemma code_exec:
+      forall s (VS: mem_invs s) j (J: j <ₒ length c),
+      xbits (s UXN) (4(i' + j) mod 2^64) (N.succ (4(i' + j) mod 2^64)) = 0.
+    Proof.
+      intros. destruct VS as (MDL&CODE&DATA&NWC&NWD&EXC).
+      pose proof (not_ext j J) as BOUNDS. unfold is_ext_addr in BOUNDS.
+      pose proof noovfl as NO. rewrite <-nlen_flat in NO.
+      rewrite N.mod_small by lia.
+      erewrite xbits_inner, EXC, xbits_0_l; [reflexivity|lia|lia].
+    Qed.
     Lemma KHere:
       forall x s
         (I: match x with
@@ -584,9 +823,10 @@ Section Soundness.
     Proof.
       intros. destruct t0; try done. destruct p as [x0 s0].
       rewrite cons2 in XP. apply exec_prog_split in XP as (_&_&XP).
-      destruct VS as (MDL&CODE&DATA&NWC&NWD).
+      destruct VS as (MDL&CODE&DATA&NWC&NWD&EXC).
       inversion XP. inversion H1. subst. clear H1 H2.
       repeat so LU; subst. apply (noassign_stmt_same A_WRITE) in XS as AW; [|apply noassign_awrite_arm2il].
+      apply (noassign_stmt_same UXN) in XS as UX; [|apply noassign_uxn_arm2il].
       repeat split.
       - eapply (preservation_exec_prog _ welltyped_arm8_prog); by try apply XP.
       - intros j m ITH. cbn. erewrite <-nonwritable_mem_arm2il. by apply CODE. apply XS. intros.
@@ -594,7 +834,8 @@ Section Soundness.
         + pose proof (proj1 (ith_Some (flat_map cd cnks) j) ltac:(by rewrite ITH)).
           remember (bi' * _ + j * 4) as n0.
           destruct (N.lt_decidable k n0).
-          * assert (bi' * 4 + lensC cnks * 4 < 2 ^ 64) by admit. rewrite nlen_length in H3.
+          * assert (bi' * 4 + lensC cnks * 4 < 2 ^ 64) by
+              (rewrite nlen_flat; lia with noovfl). rewrite nlen_length in H3.
             lia with (msub_wrap 64 k n0).
           * rewrite msub_sub, N.mod_small in H by lia. erewrite xbits_inner, NWC, xbits_0_l. easy. lia. rewrite nlen_length. lia.
         + rewrite xbits_above; auto. specialize (MDL A_WRITE _ ltac:(done)).
@@ -604,14 +845,15 @@ Section Soundness.
         + pose proof (proj1 (ith_Some (flat_map tblcontent tc) j) ltac:(by rewrite ITH)).
           remember (bti * _ + j * 8) as n0.
           destruct (N.lt_decidable k n0).
-          * assert (bti * 4 + lensT tc * 8 < 2 ^ 64) by admit. rewrite nlen_length in H3.
+          * assert (bti * 4 + lensT tc * 8 < 2 ^ 64) by apply tables_noovfl. rewrite nlen_length in H3.
             lia with (msub_wrap 64 k n0).
           * rewrite msub_sub, N.mod_small in H by lia. erewrite xbits_inner, NWD, xbits_0_l. easy. lia. rewrite nlen_length. lia.
         + rewrite xbits_above; auto. specialize (MDL A_WRITE _ ltac:(done)).
           eapply (N.lt_le_trans _ _ _ MDL), N.pow_le_mono_r; clear -H0; lia.
       - inversion AW. cbn; by rewrite <-H0.
       - inversion AW. cbn; by rewrite <-H0.
-    Admitted.
+      - inversion UX. cbn; by rewrite <-H0.
+    Qed.
     Lemma KStep:
       forall b j s q
         (VS: store_invs s)
@@ -628,9 +870,9 @@ Section Soundness.
       intros.
       rewrite ith_map in Q. repeat so Q.
       assert (a64prog s ((i'+j)*4) = Some (4, a64lift 4(i'+j) q)) as P.
-      { unfold a64prog. rewrite (mp2_mod_mul _ 2). case_match.
-        - by rewrite N.mul_add_distr_r, (code s (proj1 VS) j _ oe), Q.
-        - admit. }
+      { unfold a64prog. rewrite (mp2_mod_mul _ 2).
+        rewrite code_exec by (apply (proj1 VS) || by eapply ith_Some').
+        by rewrite N.mul_add_distr_r, (code s (proj1 VS) j _ oe), Q. }
       destruct (is_chunk_start_addr 4(i' + j) && b) eqn:S.
       { fwd. apply KHere; auto. }
       intro. eapply NIStep'.
@@ -647,7 +889,7 @@ Section Soundness.
         + eapply mem_invs_step.
           * apply exec_prog_step; [apply exec_prog_none|econstructor; apply P || apply XS].
           * by destruct VS.
-    Admitted.
+    Qed.
     Definition cidx' x n := list_sum (take n (map (toNat ∘ instsize) x)).
     Lemma cidx_Sn:
       forall x n, cidx' x (S n) = (cidx' x n + nth n (map (toNat ∘ instsize) x) O)%nat.
@@ -722,6 +964,11 @@ Section Soundness.
       - eapply N.le_lt_trans, noovfl. rewrite nlen_flat, <-!firstn_map.
         lia with (nsum_firstn_le (cmap nlen cnks) (S n)).
     Qed.
+    Lemma irel_next:
+      forall j, (n < length d.(chunks) ->
+        length c1.(cd) <= j -> irel (i' + cidx j) = S ♮i)%nat.
+    Proof.
+    Admitted.
     Lemma ExecInum:
       forall b j s n
         (VS: store_invs s)
@@ -982,12 +1229,103 @@ Section Soundness.
         rewrite N.mod_small. blia. rewrite N.shiftl_mul_pow2, N.mul_1_l. apply N.pow_lt_mono_r; lia.
     Qed.
 
+
+    Lemma chunk_ignore : c0.(ct)=Decode.ignore ->
+     forall s, store_invs s -> K_nib false (Addr ((i'+0)*4)) s.
+    Proof.
+     intros CT s VS.
+     pose proof (source_nth a d D n c1 NTH) as (CI&DEC&POL&LAST&BOUND).
+     assert (META : metadata c1=c0).
+     { rewrite R1. unfold change_szs,metadata,setd. destruct c0 as [cn ci ct cp cl []]. reflexivity. }
+     assert (DEC0 : Decode.decode c0.(cn)=Decode.ignore).
+     { rewrite <-META in CT |- *. cbn in CT |- *. exact (eq_trans DEC CT). }
+     assert (POL0 : c0.(cp)=d.(arg).(Rewrite.pol) c0.(ci)).
+     { rewrite <-META. cbn. rewrite (arg_same a d D). exact POL. }
+     (* A permitted fallthrough reaches the following chunk. *)
+     destruct (isfallthrough c0) eqn:FT.
+     - assert (CD1 : c1.(cd)=[Inum c0.(cn)]).
+       { rewrite R1. cbn. unfold rw_inst. rewrite CT,FT. destruct sz.(cd); reflexivity. }
+       assert (CODE : c3.(cd)=[c0.(cn)]).
+       { rewrite R3,R2. cbn. rewrite CD1. reflexivity. }
+       assert (NL : c1.(cl)=false).
+       { change ((metadata c1).(cl)=false). rewrite META. exact (fallthrough_not_last c0 FT). }
+       pose proof (not_last_has_next a d D n c1 NTH NL) as NEXT.
+       assert (POS : i'+1 = toN d.(arg).(Rewrite.bi')+nlen(flat_map cd(take (S n) cnks))).
+       { unfold i'. rewrite !nlen_flat,<-!firstn_map.
+         erewrite nsum_take_Sn' by (rewrite !ith_map,NTH2;reflexivity).
+         rewrite CODE. cbn. lia. }
+       assert (IREL : irel (i'+1)=(toN c0.(ci)+1)%N).
+       { rewrite POS,(following_irel n c3 NTH2 NEXT).
+         rewrite R3,R2,R1. reflexivity. }
+       assert (PE : PermittedEdge (toN c0.(ci)) (toN c0.(ci)+1)).
+       { unfold isfallthrough in FT. destruct c0.(cp) as [b|b target| |lbl] eqn:CP; try destruct b; simpl in FT; try discriminate.
+         - eqapply (FallthroughEdge c0.(ci) (eq_sym POL0)); lia.
+         - eqapply (FallthroughEdge2 c0.(ci) target (eq_sym POL0)); lia.
+         - apply IgnoreEdge. symmetry. exact POL0. }
+       eapply KStep with (j:=0%nat) (q:=arm_decode (toN c0.(cn))); [exact VS|rewrite CODE;reflexivity|].
+       intros ctx s1 x XS MI.
+       pose proof (nojumps_exec _ _ _ _ _ _ XS (nonbranch_arm2il _ _ (nonbranch_decode_ignore _ DEC0))) as NJ.
+       destruct x as [[addr|exc]|]; [contradiction| |].
+       + split; [exact I|]. apply KHere; [exact I|split;[exact MI|exact I]].
+       + split.
+         * cbn [exitof PermittedStep]. repeat eexists.
+           apply TranslatedEdge.
+           rewrite N.add_0_r. change (PermittedEdge (irel i') (irel (i'+1))).
+           assert (START : irel i'=toN c0.(ci)) by exact irel_i.
+           rewrite START,IREL.
+           exact PE.
+         * apply KHere; [|split;[exact MI|exact I]].
+           right. unfold is_chunk_start_addr.
+           change (Is_true (startschunk cnks (toN d.(arg).(Rewrite.bi')) ((i'+1)*4))).
+           rewrite POS,startschunk_at; [exact I|rewrite (num_cnks d cnks RW);exact NEXT].
+     (* The final chunk and restrictive policies use the abort path. *)
+     - assert (CD1 : exists k, c1.(cd)=[Ib k (Decode.BL 0) (Rrt 0)]).
+       { rewrite R1. cbn. unfold rw_inst. rewrite CT,FT.
+         destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity. }
+       destruct CD1 as [k CD1].
+       pose proof no_lst0 as NL.
+       rewrite R2 in NL. cbn in NL. rewrite CD1 in NL.
+       destruct k; try (cbn in NL; inversion NL; contradiction).
+       assert (REL : d.(Rewrite.rel) c1.(ci)=ofN i') by exact (rel_start n c1 NTH).
+       assert (CODE : c3.(cd)=[Asm.BL (ofN i') (resolve d (Rrt 0)>>2) orelse Asm.UDF]).
+       { rewrite R3,R2. cbn. rewrite CD1,REL. unfold instmapi. rewrite mapi_cons. cbn.
+         change (l3l ((option_map Lst1 (Asm.BL (ofN i') (resolve d (Rrt 0)>>2))) orelse (Lst1 Asm.UDF)) ++ [] = [Asm.BL (ofN i') (resolve d (Rrt 0)>>2) orelse Asm.UDF]).
+         destruct (Asm.BL (ofN i') (resolve d (Rrt 0)>>2)); reflexivity. }
+       assert (TARGET : toN (resolve d (Rrt 0)>>2)=toN d.(Rewrite.ai)).
+       { pose proof (ai_bound a d D) as AI. unfold resolve. nify.
+         rewrite N.shiftl_mul_pow2,N.shiftr_div_pow2. lia. }
+       assert (IPB : (i'<2^62)%N).
+       { pose proof noovfl as NO.
+         pose proof (nsum_firstn_le (cmap nlen cnks) n).
+         unfold i'. rewrite nlen_flat,<-!firstn_map. lia. }
+       assert (TARGETB : (resolve d (Rrt 0)>>2 <? 1<<62=true)%uint63) by (pose proof (ai_bound a d D);lia).
+       unfold Asm.BL in CODE.
+       destruct (Asm.bounded ((resolve d (Rrt 0)>>2)-ofN i') 26) as [imm|] eqn:IMM; cbn in CODE.
+       + eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.BL imm))); [exact VS|rewrite CODE;reflexivity|].
+         intros ctx s1 x XS MI.
+         apply (ExecBL IMM) in XS as [ST EXIT].
+         rewrite N.add_0_r in EXIT. fold i' in EXIT.
+         rewrite plusminus62 in EXIT by assumption.
+         rewrite TARGET in EXIT. subst x. split.
+         * cbn [exitof PermittedStep]. repeat eexists. apply AbortEdge.
+         * apply KHere; [|split;[exact MI|exact I]].
+           left. unfold is_ext_addr.
+           assert (EXT : ((toN d.(arg).(Rewrite.bi')+nlen(flat_map cd cnks))*4 <=? toN d.(Rewrite.ai)*4)%N =true) by (apply N.leb_le;pose proof abort_after_code;lia).
+           rewrite EXT,orb_true_r. exact I.
+       + eapply KStep with (j:=0%nat) (q:=arm_decode (toN Asm.UDF)); [exact VS|rewrite CODE;reflexivity|].
+         intros ctx s1 x XS MI. apply ExecUDF in XS as [ST EXIT]. subst x.
+         split; [exact I|apply KHere; [exact I|split;[exact MI|exact I]]].
+    Qed.
+
     Lemma chunk_cases: Goal.
     Proof.
-      intros. unfold change_szs, setd in R1, R2; cbn in R1, R2.
+      intros.
+      assert (IGNORE: c0.(ct) = Decode.ignore -> K_nib false (Addr 4(i'+0)) s).
+      { intro IGN. by apply chunk_ignore. }
+      unfold change_szs, setd in R1, R2; cbn in R1, R2.
       remember (zip_withl _ _ _) eqn:C. remember zip_withl. forget (map _ _).
       destruct c0, cd, ct; cbn in C, R2; subst l. simpl in R1.
-      admit.
+      { by apply IGNORE. }
       admit.
       admit.
       admit.
@@ -1000,9 +1338,6 @@ Section Soundness.
       admit.
       admit.
       admit.
-      (* apply zwcs in C as [? [? C]]; simpl in C. *)
-      (* admit. admit. *)
-      (* cbv in R2. *)
     Admitted.
   End ChunkCases.
   Theorem kotori_soundness:
