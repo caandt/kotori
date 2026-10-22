@@ -374,6 +374,16 @@ Proof.
  all: inversion DEC; subst rd.
  all: rewrite I2N.inj_xb; apply xbits_bound.
 Qed.
+Lemma decoded_ADRP_register : forall cn imm rd,
+ Decode.decode cn=Decode.ADRP imm rd -> (toN rd<32)%N.
+Proof.
+ intros cn imm rd DEC.
+ unfold Decode.decode, Decode.dc_b, Decode.dc_dpi, Decode.dc_pcr,
+ Decode.dc_b_cond, Decode.dc_b_reg, Decode.dc_b_imm, Decode.dc_cb, Decode.dc_tb in DEC.
+ repeat match type of DEC with (if ?b then _ else _) = _ => destruct b eqn:?; try discriminate DEC end.
+ all: inversion DEC; subst rd.
+ all: rewrite I2N.inj_xb; apply xbits_bound.
+Qed.
 Lemma bounded_small : forall v w imm,
  Asm.bounded v w=Some imm -> (toN w<63)%N -> (toN imm<2^(toN w))%N.
 Proof.
@@ -1467,6 +1477,29 @@ Section Soundness.
        destruct sz.(cd) as [|x xs];[exists Sz1|exists(instsz x)];reflexivity.
     Qed.
 
+    Lemma chunk_ADRP : forall imm rd, c0.(ct)=Decode.ADRP imm rd ->
+     forall s, store_invs s -> K_nib false (Addr((i'+0)*4)) s.
+    Proof.
+     intros imm rd CT.
+     destruct (isfallthrough c0) eqn:FT.
+     - apply chunk_straightline; [exact FT|].
+       assert (RD : (toN rd<32)%N).
+       { pose proof (source_nth a d D n c1 NTH) as (_&DEC&_&_&_).
+         rewrite R1 in DEC. cbn in DEC. rewrite CT in DEC.
+         exact (decoded_ADRP_register _ imm rd DEC). }
+       assert (CD1 : exists k, c1.(cd)=[Iimm true k rd
+         (Rimm (clearlow12 (c0.(ci)<<2)+sext (imm<<12) 33))]).
+       { rewrite R1. cbn. unfold rw_inst. rewrite CT,FT.
+         destruct sz.(cd) as [|x xs]; [exists Sz3|exists(instsz x)];reflexivity. }
+       destruct CD1 as [k CD1].
+       rewrite R3,R2. cbn. rewrite CD1.
+       unfold instmapi. rewrite mapi_cons. cbn -[isel].
+       rewrite app_nil_r. apply isel_Iimm_straightline. exact RD.
+     - apply chunk_abort.
+       rewrite R1. cbn. unfold rw_inst. rewrite CT,FT.
+       destruct sz.(cd) as [|x xs];[exists Sz1|exists(instsz x)];reflexivity.
+    Qed.
+
     Lemma chunk_invalid: c0.(ct) = Decode.invalid -> Goal.
     Proof.
       intro CT. apply chunk_abort.
@@ -1483,13 +1516,15 @@ Section Soundness.
       { intro INV. by apply chunk_invalid. }
       assert (ADR: forall imm rd, c0.(ct) = Decode.ADR imm rd -> K_nib false (Addr 4(i'+0)) s).
       { intros imm rd CT. by apply (chunk_ADR imm rd). }
+      assert (ADRP: forall imm rd, c0.(ct) = Decode.ADRP imm rd -> K_nib false (Addr 4(i'+0)) s).
+      { intros imm rd CT. by apply (chunk_ADRP imm rd). }
       unfold change_szs, setd in R1, R2; cbn in R1, R2.
       remember (zip_withl _ _ _) eqn:C. remember zip_withl. forget (map _ _).
       destruct c0, cd, ct; cbn in C, R2; subst l. simpl in R1.
       { by apply IGNORE. }
       { by eapply INVALID. }
       { by eapply ADR. }
-      admit.
+      { by eapply ADRP. }
       admit.
       admit.
       admit.
