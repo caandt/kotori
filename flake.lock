@@ -19,11 +19,11 @@
     "picinae": {
       "flake": false,
       "locked": {
-        "lastModified": 1792519269,
-        "narHash": "sha256-4rgUzUZRF101msPIm0Azfm0sXsBFcSERIuzsaYoyk5Q=",
+        "lastModified": 1792696226,
+        "narHash": "sha256-A9MUBAECi28tOKDCn4VvIhlrFk68rtbCq0ToXblxgyU=",
         "owner": "caandt",
         "repo": "Picinae",
-        "rev": "5ccc45e794f522c2168a95d2d543cb4967ee34f0",
+        "rev": "679cf24f9afe357009e6fc8dfcbafe3b0026620e",
         "type": "github"
       },
       "original": {
