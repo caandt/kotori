@@ -426,5 +426,6 @@ Section rw2.
       lia with (nsum_firstn_le (cmap nlen cnks) ♮(i-bi)).
     - rewrite findchunk_out; [now right | easy | lia].
     - rewrite findchunk_out; [now left | easy | lia].
+    - rewrite findchunk_out; [now right | easy | lia].
   Qed.
 End rw2.

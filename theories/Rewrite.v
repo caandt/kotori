@@ -130,6 +130,7 @@ Section ChunkGeneration.
       | _ => false
       end.
     Definition isdirect f d :=
+      (f || negb c.(cl)) &&
       match c.(cp) with
       | Pdirect ft d' => (f || ft) && (d =? d')
       | Pignore => true
@@ -195,7 +196,7 @@ Section ChunkGeneration.
       let ai := pad_to (csum (len chunks)) 10 in
       (λ x, if (bi <=? x) && (x <? ei) then rel x
             else if (bi' <=? x) && (x <? ai) then ai
-            else x, ai).
+            else if x <? 1<<61 then x else ai, ai).
     Definition fits bw n := (lesb (-1<<(bw-1)) n) && (ltsb n (1<<(bw-1))).
     Definition relaxi rel i' inst :=
       match inst with
