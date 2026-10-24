@@ -1,7 +1,6 @@
 From Kotori Require Import proof.Util proof.Decode proof.I2N.
 From Stdlib Require Import ZArith ZifySint63 ZifyUint63.
 From Picinae Require Import armv8 armv8_lifter_rework.
-From coqutil Require Import prove_Zeq_bitwise.
 Open Scope N_scope.
 
 Notation "x ⊕ y" := ((x+y) mod 2^64) (at level 50, left associativity).
@@ -85,28 +84,6 @@ Proof.
   simpl in *. remember (_ mod _).
   remember (_<<_). repeat case_match; by step XS.
 Qed.
-Lemma ltb_case:
-  forall i j, ((i <? j = true) -> i = j-1 \/  i <? j-1 = true)%uint63.
-Proof. intros. rewrite <-I2N.inj_iff. lia. Qed.
-Ltac destruct_ltb H :=
-  match type of H with
-  | (_ <? 0 = true)%uint63 => clear -H; lia
-  | (?x <? ?n = true)%uint63 =>
-      let H1 := fresh in
-      pose proof (ltb_case x n H) as H1; clear H; destruct H1 as [H|H]; simp (n-1)%uint63; [|destruct_ltb H]
-  end.
-Lemma rbits_mod:
-  forall n i m w w', rbits n i m w mod 2 ^ w' = rbits (n mod 2 ^ w') i (m mod 2 ^ (w' - i)) w.
-Proof.
-  intros. unfold rbits. rewrite <-!N.land_ones.
-  rewrite !N.land_lor_distr_l.
-  f_equal. zify.
-  rewrite !N2Z.inj_land, !N2Z.inj_ldiff, !N2Z.inj_shiftl, !N2Z.inj_land, !N2Z_inj_ones.
-  prove_Zeq_bitwise. rewrite <-!N.land_assoc. rewrite (N.land_comm (N.ones _)).
-  zify.
-  rewrite !N2Z.inj_land, !N2Z.inj_shiftl, !N2Z.inj_land, !N2Z_inj_ones in *.
-  prove_Zeq_bitwise.
-Qed.
 Lemma ExecMovk:
   forall s s' c' x a r imm hw
     (I: (imm <? 1 << 16 = true)%uint63)
@@ -114,20 +91,20 @@ Lemma ExecMovk:
     (R: (r <? 31 = true)%uint63)
     (XS: exec_stmt arm8typctx s
       (arm2il a (arm_decode ♮(Asm.Encode.MOVK 1 hw imm r))) c' s' x),
-    reset_temps s s' = s.[arm_varid ♮r := rbits (s (arm_varid ♮r)) (♮hw << 4) ♮imm 16 mod 2^64] /\ x = None.
+    reset_temps s s' = s.[
+      arm_varid ♮r :=
+        N.lor
+          (N.land
+            (s (arm_varid ♮r))
+            (N.lnot (N.ones 16 << (♮hw << 4)) 64))
+          (♮imm << (♮hw << 4))
+     ] /\ x = None.
 Proof.
   intros. rewrite decode_MOVK in XS by lia.
   unfold arm2il, arm_mov_imm2il, arm_varid, XtoVar in XS.
   simpl in *. remember (_ mod _).
-  replace (rbits _ _ _ _ mod _) with (N.lor (N.land (s (arm_varid ♮r)) (N.lnot (N.ones 16 << (♮hw << 4)) 64)) (♮imm << (♮hw << 4))).
   remember (N.lnot _ _). remember (♮_ << (_ << _)).
   repeat case_match; by step XS.
-  rewrite rbits_mod.
-  unfold rbits. f_equal.
-  rewrite (ldiff_land_low2 _ _ 64) by lia.
-  rewrite N_land_mod_pow2_move. f_equal.
-  destruct_ltb H; by subst.
-  destruct_ltb H; by subst; simp (_ - _ << _); rewrite !N.shiftl_mul_pow2, !N.mod_small; lia.
 Qed.
 Lemma ExecBL:
   forall {s s' x a c m imm26}
@@ -144,6 +121,20 @@ Proof.
   rewrite toZ_ofZ by (split;simpl;lia). unfold ofZ. f_equal. rewrite <-Z.add_mod_idemp_l by lia.
   rewrite mod_pow2_toZ; lia.
 Qed.
+Tactic Notation "simp" uconstr(x) :=
+  let X := fresh in
+  let H := fresh in
+  remember x as X eqn:H; cbv in H; subst X.
+Lemma ltb_case:
+  forall i j, ((i <? j = true) -> i = j-1 \/  i <? j-1 = true)%uint63.
+Proof. intros. rewrite <-I2N.inj_iff. lia. Qed.
+Ltac destruct_ltb H :=
+  match type of H with
+  | (_ <? 0 = true)%uint63 => clear -H; lia
+  | (?x <? ?n = true)%uint63 =>
+      let H1 := fresh in
+      pose proof (ltb_case x n H) as H1; clear H; destruct H1 as [H|H]; simp (n-1)%uint63; [|destruct_ltb H]
+  end.
 Lemma ExecLDR64:
   forall {s s' x a c rn rt}
     (N: (rn <? 31 = true)%uint63)
@@ -172,26 +163,7 @@ Proof.
   erewrite <-(recompose_bytes 3 (_⊗8)).
   by rewrite mp2_mod_mod_min, N.Div0.mod_mul, N.lor_0_l, !N.shiftl_mul_pow2.
 Qed.
-Lemma ExecPUSH2:
-  forall {s s' x a c r1 r2}
-    (R: (r1 <? 31 = true)%uint63)
-    (R': (r2 <? 31 = true)%uint63)
-    (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Asm.PUSH2 r1 r2))) c s' x),
-    exists m sp, (reset_temps s s' = s.[V_MEM64 := m].[R_XZR := sp] /\ x = None) \/
-                 (reset_temps s s' = s /\ x = Some (Raise 0)).
-Proof.
-  intros. setoid_rewrite decode_LDP_STP in XS; cbn in *; try lia.
-  unfold arm2il, arm_stp2il in XS. simpl in XS.
-  rewrite andb_false_r in XS. simpl in XS.
-  unfold arm_stp2il_constr in XS. simpl in XS.
-  remember (_ mod _). remember (scast _ _ _). simp (_*_<<3).
-  simp (1<<3). remember (_ << _ mod _).
-  destruct_ltb R; destruct_ltb R'; subst r1 r2. - step XS. case_match. step XS.
-  destruct XS as [[? ?]_].
-  repeat eexists. left. split; auto; apply H0.
-  step XS. 
-  repeat eexists. right. split; auto; apply H0.
-Abort.
+
 Lemma I2Nlandones_bound:
   forall n m,
   ♮(n land ones m) < 2 ^ ♮m.
@@ -218,10 +190,10 @@ Proof.
 Qed.
 Lemma ExecCBZ:
   forall {s s' x a c m imm19 sf op r}
-    (IMM: Asm.bounded m 19 = Some imm19)
     (O: (op <? 2 = true)%uint63)
     (S: (sf <? 2 = true)%uint63)
-    (R: (r <? 32 = true)%uint63)
+    (R: (r <? 31 = true)%uint63)
+    (IMM: Asm.bounded m 19 = Some imm19)
     (XS: exec_stmt arm8typctx s (arm2il (a*4) (arm_decode ♮(Asm.Encode.CBZ sf op imm19 r))) c s' x),
     reset_temps s s' = s /\ (x = Some (Addr (ofZ 62 (Z.of_N a + Sint63Axioms.to_Z m) * 4)) \/ x = None).
 Proof.
@@ -248,11 +220,11 @@ Proof.
 Qed.
 Lemma ExecTBZ:
   forall {s s' x a c m imm14 b5 op b40 r}
-    (IMM: Asm.bounded m 14 = Some imm14)
     (O: (op <? 2 = true)%uint63)
     (B: (b5 <? 2 = true)%uint63)
     (B: (b40 <? 16 = true)%uint63)
-    (R: (r <? 32 = true)%uint63)
+    (R: (r <? 31 = true)%uint63)
+    (IMM: Asm.bounded m 14 = Some imm14)
     (XS: exec_stmt arm8typctx s (arm2il (a*4) (arm_decode ♮(Asm.Encode.TBZ b5 op b40 imm14 r))) c s' x),
     reset_temps s s' = s /\ (x = Some (Addr (ofZ 62 (Z.of_N a + Sint63Axioms.to_Z m) * 4)) \/ x = None).
 Proof.
@@ -268,8 +240,8 @@ Proof.
 Qed.
 Lemma ExecBcond:
   forall {s s' x a c m imm19 cond}
-    (IMM: Asm.bounded m 19 = Some imm19)
     (C: (cond <? 16 = true)%uint63)
+    (IMM: Asm.bounded m 19 = Some imm19)
     (XS: exec_stmt arm8typctx s (arm2il (a*4) (arm_decode ♮(Asm.Encode.Bcond imm19 cond))) c s' x),
     reset_temps s s' = s /\ (x = Some (Addr (ofZ 62 (Z.of_N a + Sint63Axioms.to_Z m) * 4)) \/ x = None).
 Proof.
@@ -282,7 +254,7 @@ Proof.
   rewrite mod_pow2_toZ; lia.
 Qed.
 
-
+From Stdlib Require Import NArith.   
 
 Lemma plusminus62:
   forall a b
@@ -296,59 +268,142 @@ Proof.
 Qed.
 
 Lemma ExecADR:
-  forall {s s' x a c imm19 m Rd low}
-    (IMM: Asm.bounded m 19 = Some imm19)
-    (L: (low <? 4 = true)%uint63)
+  forall {s s' x a c imm21 m Rd}
+    (IMM: Asm.bounded m 21 = Some imm21)
     (R: (Rd <? 31 = true)%uint63)
-    (XS: exec_stmt arm8typctx s (arm2il (a*4) (arm_decode ♮(Asm.Encode.ADR low imm19 Rd))) c s' x),
-    reset_temps s s' = s.[arm_varid ♮Rd := ofZ 62 (Z.of_N a + Sint63.to_Z m) * 4 + ♮low] /\ x = None.
+    (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Asm.Encode.ADR (imm21:[0,2]) (imm21:[2,19]) Rd))) c s' x),
+    reset_temps s s' = s.[arm_varid ♮Rd := ofZ 64 (Z.of_N a + Sint63.to_Z m)] /\ x = None.
 Proof.
   intros. pose proof IMM. so IMM. case_match; try done. so IMM. apply bounded_toZ in H; try lia.
-  rewrite decode_ADR in XS by (lia || subst; apply I2Nlandones_bound).
-  replace (_ + ♮low) with (a ⊗ 4 ⊕ scast 21 64 (N.lor (♮imm19 << 2) ♮low)).
+  rewrite decode_ADR in XS by (lia || rewrite I2N.inj_xb; apply xbits_bound).
+  replace (ofZ _ _) with (a mod 2 ^ 64 ⊕ scast 21 64 (N.lor (♮(imm21:[2, 19]) << 2) ♮(imm21:[0, 2]))).
   unfold arm2il, arm_adr2il, arm_varid in XS. remember (scast _ _ _). remember (_ mod _).
   repeat case_match; step XS; auto.
-  rewrite add_sbop.
-  unfold scast. rewrite toZ_ofZ by by eapply signed_range_mono_l, toZ_bounds.
+  rewrite add_sbop. rewrite toZ_mod_pow2 by done. unfold scast. rewrite toZ_ofZ by by eapply signed_range_mono_l, toZ_bounds.
   rewrite <-H.
-  rewrite toZ_lor.
-  rewrite <-(toZ_lsl ♮19 2).
-  rewrite (proj1 (toZ_nonneg 21 _)) by (repeat simp (2^_); lia).
-  rewrite <-numbers.Z.add_nocarry_lor.
-  rewrite Z.shiftl_mul_pow2 by lia.
-  unfold ofZ. rewrite <-Z.add_mod_idemp_l, mod_pow2_toZ by lia. lia.
-  remember (Z.of_N (_ mod _)).
-  replace z with (z mod 2^2)%Z by lia.
-  rewrite <-Z.land_ones by lia. clear. prove_Zeq_bitwise.
+  unfold ofZ. rewrite <-Zplus_mod_idemp_l, <-(Zplus_mod_idemp_l (Z.of_N _)).
+  rewrite mod_pow2_toZ, N2Z.inj_mod by lia. repeat f_equal.
+  by rewrite <-IMM, N.lor_comm, !I2N.inj_xb, xbits_0_i, xbits_equiv, (N.mod_small _ (2^21)), recompose_bytes by apply I2Nlandones_bound.
 Qed.
 
 Lemma ExecADRP:
-  forall {s s' x a c m imm21 Rd}
+  forall {s s' x a c imm21 m Rd}
     (IMM: Asm.bounded m 21 = Some imm21)
     (R: (Rd <? 31 = true)%uint63)
-    (XS: exec_stmt arm8typctx s (arm2il (a*4) (arm_decode ♮(Asm.Encode.ADRP (imm21:[0,2]) (imm21:[2,19]) Rd))) c s' x),
-    reset_temps s s' = s.[arm_varid ♮Rd := ofZ 52 (Z.of_N (a>>10) + Sint63.to_Z m) << 12] /\ x = None.
+    (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Asm.Encode.ADRP (imm21:[0,2]) (imm21:[2,19]) Rd))) c s' x),
+    reset_temps s s' = s.[arm_varid ♮Rd := ((a mod 2^64) >> 12) << 12 mod 2 ^ 64 ⊕ (scast 33 64 (N.lor (♮(imm21:[2, 19]) << 2) ♮(imm21:[0, 2]) <<
+12))] /\ x = None.
 Proof.
-  intros. rewrite decode_ADRP in XS by (lia || apply I2Nlandones_bound).
-  replace (_ << _) with ((a⊗4)>>12<<12 mod 2^64 ⊕ scast 33 64 (N.lor (♮(imm21:[2, 19]) << 2) ♮(imm21:[0, 2]) << 12)).
+  intros. pose proof IMM. so IMM. case_match; try done. so IMM. apply bounded_toZ in H; try lia.
+  rewrite decode_ADRP in XS by (lia || rewrite I2N.inj_xb; apply xbits_bound).
   unfold arm2il, arm_adrp2il, arm_varid in XS. remember (scast _ _ _). remember (_ mod _).
-  repeat case_match; by step XS.
-  rewrite N.Div0.add_mod_idemp_l by lia.
-  pose proof IMM. apply bounded_toZ in H; try lia. unfold scast.
-  rewrite <-(toZ_lsl ♮21 12), !I2N.inj_xb, N.lor_comm, <-xbits_split, xbits_0_i by lia.
-  repeat so IMM. rewrite (N.mod_small _ (2^21)) by (subst;apply I2Nlandones_bound).
-  rewrite H, ofZ_shiftl, N.Div0.add_mod_idemp_r.
-  rewrite !N.shiftl_mul_pow2, <-N.mul_add_distr_r.
-  rewrite <-N.Div0.mul_mod_idemp_l, add_sbop.
-  rewrite toZ_ofZ by (split; simpl; lia).
-  rewrite (proj1 (toZ_nonneg _ _)) by (rewrite N.shiftr_div_pow2; simp (2^N.pred _); lia).
-  rewrite !N.shiftr_div_pow2. unfold ofZ. lia.
+  repeat case_match; step XS. all: auto.
 Qed.
+
+
+Set Printing Depth 40. 
+Lemma arm_varid_neq:
+  forall {Xt1 Xt2}
+  (NEQ: (♮Xt1 =? ♮Xt2) = false),
+  (arm_varid ♮Xt1 <> arm_varid ♮Xt2).
+Proof. Admitted.
+
+Lemma toN_lt32 : forall x, (x <? 32)%uint63 = true -> ♮x < 32.
+Proof.
+  intros x Hx. apply Uint63.ltb_spec in Hx.
+  pose proof (Uint63.to_Z_bounded x).
+  unfold toN.                   
+  change (Uint63.to_Z 32) with 32%Z in Hx.
+  lia.
+Qed.
+
+Lemma ExecPOP2:
+  forall {s s' c a Xt1 x Xt2}
+  (XT: (Xt1 <? 32 =  true)%uint63)
+  (XT2:( Xt2 <? 32 = true)%uint63)
+  (NEQ: (♮Xt1 =? ♮Xt2) = false)
+  (AL  : s R_SP mod 16 = 0)
+  (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Asm.POP2 Xt1 Xt2 ))) c s' x),
+
+   reset_temps s s' = s.[arm_varid ♮Xt1 := getmem 64 LittleE 8 (s V_MEM64) (s R_SP)].[arm_varid ♮Xt2 :=
+   getmem 64 LittleE 8 (s V_MEM64) (s R_SP ⊕ 8)].[R_SP := s R_SP ⊕ 16] /\ x = None.
+Proof.
+  intros.
+  unfold Asm.POP2,Asm.LDP_post64 in XS. replace (Asm.bounded (asr 16 3) 7) with (Some 2%uint63) in XS.
+  simpl in XS. rewrite decode_LDP_STP in XS. simpl in XS. all: try lia.
+
+  unfold arm2il,arm_ldp2il in XS. simpl in XS.
+  destruct_ltb XT;subst Xt1; cbn in XS.
+  all: try(
+  unfold arm_ldp2il_constr in XS; cbn in XS;
+  remember (_ << _);
+  remember (_ mod _) in XS;
+  remember (scast _ _ _ );
+  remember (_ << _ mod _);
+  cbv in Heqn;
+  destruct_ltb XT2;
+  subst Xt2; cbn in XS
+
+  ; try (step XS; remember (N.land _ _); rewrite AL in Heqn3; cbn in Heqn3;
+  replace (N.lnot 1 1) with 0 in Heqn3 by reflexivity; rewrite N.land_0_r in Heqn3; subst n3;
+  step XS; destruct XS; simpl arm_varid;
+  cbv in Heqn1; subst n n1; cbv in Heqn2; subst n2;
+  assumption);
+  cbn in NEQ; discriminate).
+  cbn; reflexivity.
+  Qed.
+
+Lemma ExecPUSH2:
+  forall {s s' c a Xt1 x Xt2}
+  (XT: (Xt1 <? 32 =  true)%uint63)
+  (XT2:( Xt2 <? 32 = true)%uint63)
+  (NEQ: (♮Xt1 =? ♮Xt2) = false)
+  (AL  : s R_SP mod 16 = 0)
+  (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Asm.PUSH2 Xt1 Xt2 ))) c s' x),
+let off := (scast 7 64 126 << 3) mod 2 ^ 64 in
+  reset_temps s s' =
+    s.[V_MEM64 := setmem 64 LittleE 8
+                    (setmem 64 LittleE 8 (s V_MEM64) (s R_SP ⊕ off)
+                       (s (arm_varid ♮Xt1) mod 2 ^ 64))
+                    (s R_SP ⊕ off ⊕ 8)
+                    (s (arm_varid ♮Xt2) mod 2 ^ 64)]
+     .[R_SP := s R_SP ⊕ off]
+  /\ x = None.
+
+Proof.
+  intros.
+  unfold Asm.PUSH2, Asm.STP_pre64 in XS.
+  replace (Asm.bounded (asr 9223372036854775792 3) 7) with (Some 126%uint63) in XS.
+  simpl in XS. rewrite decode_LDP_STP in XS. simpl in XS. all: try lia.
+  2: cbn; reflexivity.
+
+
+  unfold arm2il ,arm_stp2il in XS. simpl in XS.
+  destruct_ltb XT;subst Xt1; cbn in XS.
+  all:
+  try(
+  unfold arm_stp2il_constr in XS; cbn in XS;
+  remember (_ << _);
+  replace (1<<3 ) with 8 in XS;
+  replace (8*8) with 64 in XS;
+  remember (_ mod _) in XS;
+  remember (_ mod _) in XS;
+  cbv in Heqn;
+  destruct_ltb XT2;
+  subst Xt2; cbn in XS
+
+  ; try (step XS; remember (N.land _ _); rewrite AL in Heqn2; cbn in Heqn2;
+  replace (N.lnot 1 1) with 0 in Heqn2 by reflexivity; rewrite N.land_0_r in Heqn2; subst n2;
+  step XS; destruct XS; unfold off;
+  rewrite <- Heqn1; try
+  assumption)); try (auto||lia).
+
+  Qed.
+   
 Lemma tmask_ones:
   forall lsb width
-    (L: (lsb <? 1<<6 = true)%uint63)
-    (W: (width-1 <? 1<<6 = true)%uint63)
-    (W': (lsb+width-1 <? 1<<6 = true)%uint63),
+    (L: (lsb <? 1<<5 = true)%uint63)
+    (W: (width-1 <? 1<<5 = true)%uint63),
   tmask 1 ♮(lsb + width - 1) ♮lsb false 64 = N.ones ♮width.
 Proof.
   intros. unfold tmask, DecodeBitMasks.
@@ -360,9 +415,9 @@ Proof.
 Qed.
 Lemma ExecUBFX:
   forall {s s' x a c Rd lsb width}
-    (L: (lsb <? 1<<6 = true)%uint63)
-    (W: (width-1 <? 1<<6 = true)%uint63)
-    (W': (lsb+width-1 <? 1<<6 = true)%uint63)
+    (L: (lsb <? 1<<5 = true)%uint63)
+    (W: (width-1 <? 1<<5 = true)%uint63)
+    (W': (lsb+width-1 <? 1<<5 = true)%uint63)
     (D: (Rd <? 1<<5-1 = true)%uint63)
     (XS: exec_stmt arm8typctx s (arm2il a (arm_decode ♮(Asm.UBFX true Rd Rd lsb width))) c s' x),
   exists n, reset_temps s s' = s.[arm_varid ♮Rd := n] /\ x = None /\ n < 2^♮width.
@@ -375,7 +430,7 @@ Proof.
   remember ♮lsb. remember ♮(_-_). remember (tmask _ _ _ _ _).
   remember (wmask _ _ _ _ _).
   repeat case_match; step XS; subst;
-  (repeat eexists; [apply S|rewrite N.land_comm, (tmask_ones _ _ L W W'); apply land_bound, ones_bound]).
+  (repeat eexists; [apply S|rewrite N.land_comm, (tmask_ones _ _ L W); apply land_bound, ones_bound]).
 Qed.
 Lemma ExecEOR:
   forall {s s' a c x r sft}
@@ -404,3 +459,9 @@ Lemma ExecUDF:
 Proof.
   intros. simp (arm_decode _). unfold arm2il in XS. by step XS.
 Qed.
+
+
+
+
+
+

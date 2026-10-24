@@ -106,7 +106,6 @@
         default = pkgs.mkShell {
           inputsFrom = [kotori];
           packages = [
-            kotori.coqPackages.coq
             kotori.ocamlPackages.utop
             pkgs.perf
           ];

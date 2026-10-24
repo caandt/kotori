@@ -166,12 +166,24 @@ Section ChunkGeneration.
           ifd false d [Ib Sz2 t (Raddr d)]
       | BR rn | RET rn => ifi (rw_indirect rn [Inum n])
       | BLR rn =>
+          if a.(orig_lr) && (rn =? 30) then
+            (* BLR X30 under orig_lr: setlr overwrites X30, so the target
+               cannot be kept in X30 across it.  The original X30 is dead
+               after BLR X30 (it becomes the return address), so nothing
+               observable is lost by not materializing it. *)
+            ifi (λ lbl,
+              match ith dsets lbl orelse [] with
+              | [d] => setlr ((i+1)<<2) (Ib Sz1 (B 0) (Raddr d))
+              | _ => abort  (* no free register to hold a dynamic target *)
+              end)
+          else
           ifi (rw_indirect rn (
             if a.(orig_lr)
             then setlr ((i+1)<<2) (Inum (n lxor (1<<21)))
             else [Inum n]
           ))
       end.
+
   End InstRewriter.
   Definition stage2 l := chunkmap rw_inst l.
   Section Relaxation.
