@@ -76,6 +76,124 @@ Proof.
   intro. I2N.nify. change ♮3 with (N.ones 2). rewrite N.land_ones. lia.
 Qed.
 
+(* The new ExecMovk result: replace the 16-bit field at bit s. *)
+Lemma movk_val:
+  forall v w s,
+    v < 2^64 -> w < 2^16 ->
+    N.lor (N.land v (N.lnot (N.ones 16 << s) 64)) (w << s) =
+    v - N.land v (N.ones 16 << s) + (w << s).
+Proof.
+  intros v w s V W.
+  rewrite <-(ldiff_land_low2 v (N.ones 16 << s) 64 V).
+  rewrite lor_plus, ldiff_sub; [reflexivity|].
+  apply N.bits_inj_0. intro n.
+  rewrite N.land_spec, N.ldiff_spec.
+  destruct (N.lt_ge_cases n s) as [LT|GE].
+  - rewrite !(N.shiftl_spec_low _ _ _ LT). by destruct (N.testbit v n).
+  - rewrite (N.shiftl_spec_high' _ _ _ GE), (N.shiftl_spec_high' _ _ _ GE).
+    destruct (N.lt_ge_cases (n - s) 16) as [L16|G16].
+    + rewrite (N.ones_spec_low _ _ L16).
+      by destruct (N.testbit v n), (N.testbit w (n - s)).
+    + rewrite <-(N.mod_small w (2^16) W), N.mod_pow2_bits_high by exact G16.
+      by rewrite andb_false_r.
+Qed.
+
+(* arithmetic form of a MOVK update at bit s *)
+Lemma movk_arith:
+  forall v w s,
+    v < 2^64 -> w < 2^16 ->
+    N.lor (N.land v (N.lnot (N.ones 16 << s) 64)) (w << s) =
+    v - ((v / 2^s) mod 2^16) * 2^s + w * 2^s.
+Proof.
+  intros v w s V W. rewrite movk_val by assumption.
+  rewrite N_land_shiftl, N.land_ones, N.shiftr_div_pow2, !N.shiftl_mul_pow2. reflexivity.
+Qed.
+
+(* ADRP (page) then MOVK #(imm land 0xffff), LSL 0 *)
+Lemma movk_adrp:
+  forall X: int,
+  N.lor (N.land (♮(X >> 12) << 12) (N.lnot (N.ones 16 << (♮0 << 4)) 64))
+        (♮(X land 65535) << (♮0 << 4)) = ♮X.
+Proof.
+  intros X. assert (XB: ♮X < 2^63) by lia.
+  replace (♮0%uint63 << 4) with 0 by reflexivity.
+  rewrite movk_arith.
+  - rewrite land16. I2N.nify. change ♮12 with 12. change ♮65536 with 65536.
+    rewrite !N.shiftr_div_pow2, !N.shiftl_mul_pow2. change (2^0) with 1. lia.
+  - I2N.nify. change ♮12 with 12.
+    rewrite !N.shiftr_div_pow2, !N.shiftl_mul_pow2. lia.
+  - rewrite land16. I2N.nify. change ♮65536 with 65536. lia.
+Qed.
+
+(* MOVZ #(imm >> 16), LSL 16 then MOVK #(imm land 0xffff), LSL 0 *)
+Lemma movk_z1:
+  forall X: int,
+  N.lor (N.land (♮(X >> 16) << 16) (N.lnot (N.ones 16 << (♮0 << 4)) 64))
+        (♮(X land 65535) << (♮0 << 4)) = ♮X.
+Proof.
+  intros X. assert (XB: ♮X < 2^63) by lia.
+  replace (♮0%uint63 << 4) with 0 by reflexivity.
+  rewrite movk_arith.
+  - rewrite land16. I2N.nify. change ♮16 with 16. change ♮65536 with 65536.
+    rewrite !N.shiftr_div_pow2, !N.shiftl_mul_pow2. change (2^0) with 1. lia.
+  - I2N.nify. change ♮16 with 16.
+    rewrite !N.shiftr_div_pow2, !N.shiftl_mul_pow2. lia.
+  - rewrite land16. I2N.nify. change ♮65536 with 65536. lia.
+Qed.
+
+(* Side conditions of the movk lemmas: bounds on shifted/masked ints. *)
+Local Ltac mnn :=
+  rewrite ?land16; I2N.nify;
+  try change ♮32 with 32; try change ♮16 with 16; try change ♮65536 with 65536;
+  rewrite ?N.shiftr_div_pow2, ?N.shiftl_mul_pow2; lia.
+(* MOVZ #((imm >> 32) land 0xffff), LSL 32; MOVK #((imm >> 16) land 0xffff), LSL 16;
+   MOVK #(imm land 0xffff), LSL 0 *)
+Lemma movk_z2:
+  forall X: int, ♮X < 2^48 ->
+  N.lor
+    (N.land
+       (N.lor
+          (N.land (♮(X >> 32 land 65535) << 32) (N.lnot (N.ones 16 << 16) 64))
+          (♮(X >> 16 land 65535) << 16))
+       (N.lnot (N.ones 16 << (♮0 << 4)) 64))
+    (♮(X land 65535) << (♮0 << 4)) = ♮X.
+Proof.
+  intros X B. assert (XB: ♮X < 2^63) by lia.
+  replace (♮0%uint63 << 4) with 0 by reflexivity.
+  rewrite (movk_arith (♮(X >> 32 land 65535) << 32) (♮(X >> 16 land 65535)) 16)
+    by mnn.
+  rewrite (movk_arith _ (♮(X land 65535)) 0) by mnn.
+  mnn.
+Qed.
+
+(* Exec.v now takes the range hypotheses before IMM for these three; the
+   chunk_cases proofs below pass IMM first and discharge the rest as side goals. *)
+Lemma ExecBcond':
+  forall {s s' x a c m imm19 cond}
+    (IMM: Asm.bounded m 19 = Some imm19)
+    (C: (cond <? 16 = true)%uint63)
+    (XS: exec_stmt arm8typctx s (arm2il (a*4) (arm_decode ♮(Asm.Encode.Bcond imm19 cond))) c s' x),
+    reset_temps s s' = s /\ (x = Some (Addr (ofZ 62 (Z.of_N a + Sint63Axioms.to_Z m) * 4)) \/ x = None).
+Proof. intros. exact (ExecBcond C IMM XS). Qed.
+Lemma ExecCBZ':
+  forall {s s' x a c m imm19 sf op r}
+    (IMM: Asm.bounded m 19 = Some imm19)
+    (O: (op <? 2 = true)%uint63)
+    (S: (sf <? 2 = true)%uint63)
+    (R: (r <? 32 = true)%uint63)
+    (XS: exec_stmt arm8typctx s (arm2il (a*4) (arm_decode ♮(Asm.Encode.CBZ sf op imm19 r))) c s' x),
+    reset_temps s s' = s /\ (x = Some (Addr (ofZ 62 (Z.of_N a + Sint63Axioms.to_Z m) * 4)) \/ x = None).
+Proof. intros. exact (ExecCBZ O S R IMM XS). Qed.
+Lemma ExecTBZ':
+  forall {s s' x a c m imm14 b5 op b40 r}
+    (IMM: Asm.bounded m 14 = Some imm14)
+    (O: (op <? 2 = true)%uint63)
+    (B: (b5 <? 2 = true)%uint63)
+    (B': (b40 <? 16 = true)%uint63)
+    (R: (r <? 32 = true)%uint63)
+    (XS: exec_stmt arm8typctx s (arm2il (a*4) (arm_decode ♮(Asm.Encode.TBZ b5 op b40 imm14 r))) c s' x),
+    reset_temps s s' = s /\ (x = Some (Addr (ofZ 62 (Z.of_N a + Sint63Axioms.to_Z m) * 4)) \/ x = None).
+Proof. intros. exact (ExecTBZ O B B' R IMM XS). Qed.
 
 Definition arm8_prog s a :=
   match a mod 4, xbits (s UXN) (a mod 2^64) (N.succ (a mod 2^64)) with
@@ -86,8 +204,8 @@ Theorem welltyped_arm8_prog: welltyped_prog arm8typctx arm8_prog.
 Proof.
   intros s a. unfold arm8_prog.
   destruct (a mod 4); try done. destruct (xbits (s UXN) _ _); try done.
-  exists arm8typctx. admit.
-Admitted.
+  exists arm8typctx. apply welltyped_arm82il.
+Qed.
 Notation a64prog := arm8_prog.
 Notation a64lift := arm2il.
 Notation a64dec := arm_decode.
@@ -417,6 +535,39 @@ Proof.
  all: inversion DEC; subst rd.
  all: rewrite I2N.inj_xb; apply xbits_bound.
 Qed.
+Lemma decoded_BR_register : forall cn rn,
+ Decode.decode cn=Decode.BR rn -> (toN rn<32)%N.
+Proof.
+ intros cn rn DEC.
+ unfold Decode.decode, Decode.dc_b, Decode.dc_dpi, Decode.dc_pcr,
+ Decode.dc_b_cond, Decode.dc_b_reg, Decode.dc_b_imm, Decode.dc_cb, Decode.dc_tb in DEC.
+ repeat match type of DEC with (if ?b then _ else _) = _ => destruct b eqn:?; try discriminate DEC end.
+ all: inversion DEC; subst rn.
+ all: rewrite I2N.inj_xb; apply xbits_bound.
+Qed.
+Lemma decoded_RET_register : forall cn rn,
+ Decode.decode cn=Decode.RET rn -> (toN rn<32)%N.
+Proof.
+ intros cn rn DEC.
+ unfold Decode.decode, Decode.dc_b, Decode.dc_dpi, Decode.dc_pcr,
+ Decode.dc_b_cond, Decode.dc_b_reg, Decode.dc_b_imm, Decode.dc_cb, Decode.dc_tb in DEC.
+ repeat match type of DEC with (if ?b then _ else _) = _ => destruct b eqn:?; try discriminate DEC end.
+ all: inversion DEC; subst rn.
+ all: rewrite I2N.inj_xb; apply xbits_bound.
+Qed.
+Lemma decoded_BLR_register : forall cn rn,
+ Decode.decode cn=Decode.BLR rn -> (toN rn<32)%N.
+Proof.
+ intros cn rn DEC.
+ unfold Decode.decode, Decode.dc_b, Decode.dc_dpi, Decode.dc_pcr,
+ Decode.dc_b_cond, Decode.dc_b_reg, Decode.dc_b_imm, Decode.dc_cb, Decode.dc_tb in DEC.
+ repeat match type of DEC with (if ?b then _ else _) = _ => destruct b eqn:?; try discriminate DEC end.
+ all: inversion DEC; subst rn.
+ all: rewrite I2N.inj_xb; apply xbits_bound.
+Qed.
+Lemma orelse_cons : forall (o: option (list int)) dd,
+ (o orelse []) = [dd] -> o = Some [dd].
+Proof. intros o dd. destruct o; simpl; intro H; [by f_equal | discriminate]. Qed.
 Lemma bounded_small : forall v w imm,
  Asm.bounded v w=Some imm -> (toN w<63)%N -> (toN imm<2^(toN w))%N.
 Proof.
@@ -744,7 +895,7 @@ Section Soundness.
   Qed.
   Lemma table_fits_sound:
     forall b tables, table_fits b tables = true ->
-    ♮b * 4 + lensT tables * 8 < 2^64.
+    ♮b * 4 + lensT tables * 8 < 2^63.
   Proof.
     assert (COUNT: forall (l: list int) n,
       fold_left (λ n (_: int), (n + 2)%N) l n = n + nlen l * 2).
@@ -759,9 +910,14 @@ Section Soundness.
     rewrite TABLES in FIT. apply N.ltb_lt in FIT. unfold toN. lia.
   Qed.
   Lemma tables_noovfl:
-    bti * 4 + lensT tc * 8 < 2^64.
+    bti * 4 + lensT tc * 8 < 2^63.
   Proof.
     repeat so D. rewrite <-D. simpl. apply table_fits_sound. assumption.
+  Qed.
+  Lemma tables_D:
+    compute_tables rel d.(Rewrite.ai) d.(Rewrite.bti) dsets = Some tc.
+  Proof.
+    repeat so D. rewrite <-D. simpl. assumption.
   Qed.
   Lemma output_source_nth : forall n c,
    ith cnks n=Some c -> c.(ci)=(a.(Rewrite.bi)+ofNat n)%uint63.
@@ -907,6 +1063,13 @@ Section Soundness.
           -- right. apply N.leb_le. lia.
   Qed.
 
+  Lemma resolve_raddr_val : forall j,
+    toN (resolve d (Raddr j)) = toN (d.(Rewrite.rel) j) * 4.
+  Proof.
+    intro j. pose proof (relocation_endpoint j) as (TB&_&_).
+    unfold resolve. nify. rewrite N.shiftl_mul_pow2. lia.
+  Qed.
+
   Section ChunkCases.
     Variable n : nat.
     Variable c0 : chunk ().
@@ -1032,7 +1195,7 @@ Section Soundness.
         + pose proof (proj1 (ith_Some (flat_map tblcontent tc) j) ltac:(by rewrite ITH)).
           remember (bti * _ + j * 8) as n0.
           destruct (N.lt_decidable k n0).
-          * assert (bti * 4 + lensT tc * 8 < 2 ^ 64) by apply tables_noovfl. rewrite nlen_length in H3.
+          * assert (bti * 4 + lensT tc * 8 < 2 ^ 64) by (pose proof tables_noovfl; lia). rewrite nlen_length in H3.
             lia with (msub_wrap 64 k n0).
           * rewrite msub_sub, N.mod_small in H by lia. erewrite xbits_inner, NWD, xbits_0_l. easy. lia. rewrite nlen_length. lia.
         + rewrite xbits_above; auto. specialize (MDL A_WRITE _ ltac:(done)).
@@ -1091,6 +1254,43 @@ Section Soundness.
     Qed.
     Definition cidx_cons a t n: cidx' (a::t) (S n) = (♮(instsize a) + cidx' t n)%nat := eq_refl.
     Notation cidx := (cidx' c1.(cd)).
+    (* Slicing the concatenated output of a mapped instruction list: the part
+       starting at the j-th instruction's offset is its expansion followed by
+       the rest. *)
+    Lemma instmapi_drop:
+      forall (f: int -> cinst -> list3)
+        (SZ: forall ip x, f ip x <> Lst0 -> length (l3l (f ip x)) = toNat (instsize x)),
+      forall L ip,
+        Forall (.≠ Lst0) (instmapi ip f L) ->
+        forall j x, ith L j = Some x ->
+          @eq (list int) (drop (cidx' L j) (concat (map l3l (instmapi ip f L))))
+            (List.app (l3l (f (ip + ofNat (cidx' L j))%uint63 x))
+              (drop (cidx' L (S j)) (concat (map l3l (instmapi ip f L))))) /\
+          f (ip + ofNat (cidx' L j))%uint63 x <> Lst0.
+    Proof.
+      intros f SZ. induction L as [|y L IH]; intros ip NL j x A; [discriminate|].
+      unfold instmapi in NL |- *. rewrite mapi_cons in NL |- *. cbn [rev app map concat] in NL |- *.
+      inversion NL as [|? ? NL0 NL1]; subst.
+      change (_mapi instsize [] (ip + instsize y)%uint63 f L)
+        with (instmapi (ip + instsize y)%uint63 f L) in *.
+      pose proof (SZ ip y NL0) as LEN.
+      destruct j as [|j].
+      - cbn in A. injection A as <-.
+        replace (ip + ofNat (cidx' (y::_) 0))%uint63 with ip by (unfold cidx'; simpl; lia).
+        rewrite cidx_cons. replace (♮(instsize y) + cidx' L 0)%nat with (length (l3l (f ip y)))
+          by (unfold cidx'; simpl; lia).
+        split; [|exact NL0].
+        unfold cidx'. simpl take. rewrite drop_app_length. reflexivity.
+      - cbn in A.
+        destruct (IH (ip + instsize y)%uint63 NL1 j x A) as [E NE].
+        rewrite !cidx_cons.
+        replace (♮(instsize y) + cidx' L (S j))%nat with (length (l3l (f ip y)) + cidx' L (S j))%nat by lia.
+        replace (♮(instsize y) + cidx' L j)%nat with (length (l3l (f ip y)) + cidx' L j)%nat by lia.
+        rewrite !drop_app_add, E.
+        replace (ip + ofNat (length (l3l (f ip y)) + cidx' L j))%uint63
+          with ((ip + instsize y) + ofNat (cidx' L j))%uint63 by (rewrite LEN; lia).
+        split; [reflexivity|exact NE].
+    Qed.
     Lemma cidxn:
       forall {j x}
         (A: ith c1.(cd) j = Some x),
@@ -1098,32 +1298,14 @@ Section Soundness.
       (l3l (isel d ♯(i' + cidx j) x)) ++ drop (cidx (S j)) c3.(cd) /\
       isel d ♯(i' + cidx j) x <> Lst0.
     Proof.
-      intros. erewrite <-(firstn_skipn ♮(instsize x) (drop _ _)), skipn_skipn.
-      rewrite (cidx_Sn' _ _ _ A), Nat.add_comm.
-      rewrite (and_iff_compat_r); [|split; try apply app_inv_tail; intro; by rewrite H].
-      specialize no_lst0.
-      rewrite R3, R2, <-(add_0_r (rel c1.(ci))), <-(add_0_r (ofN _)), Forall_forall.
-      simpl. revert x j A. unfold instmapi.
-      generalize 0%uint63. clear. induction c1.(cd); [done|]; intros.
-      setoid_rewrite mapi_cons. simpl. destruct j.
-      - unfold cidx'. inversion A; subst.
-        rewrite firstn_O, skipn_O, firstn_app, firstn_all2, List.firstn_eq_O, app_nil_r.
-        + repeat f_equal. simpl. rewrite N.add_0_r. split. admit.
-           apply H. rewrite mapi_cons. left. admit.
-        + rewrite instsize_correct'; lia || apply H. rewrite mapi_cons. by left.
-        + rewrite instsize_correct'; lia || apply H. rewrite mapi_cons. by left.
-      - rewrite skipn_app, skipn_all2, app_nil_l.
-        + specialize (IHl (add i0 (instsize a)) _ _ A).
-          rewrite instsize_correct', <-add_assoc, cidx_cons, Nat.add_sub'.
-          hintro IHl. destruct IHl. setoid_rewrite H0. split.
-          * do 2 f_equal. lia.
-          * eapply ZifyClasses.eq_iff; [  | exact H1 ]. do 3 f_equal. lia.
-          * intros. apply H. unfold instmapi in *.
-            rewrite mapi_cons, <-add_assoc. simpl. by right.
-          * apply H. setoid_rewrite mapi_cons. by left.
-        + rewrite cidx_cons, instsize_correct'. lia.
-          apply H. setoid_rewrite mapi_cons. by left.
-    Admitted.
+      intros j x A.
+      pose proof (rel_start n c1 NTH) as REL.
+      pose proof no_lst0 as NL. rewrite R2 in NL. cbn in NL. rewrite REL in NL.
+      destruct (instmapi_drop (isel d) (instsize_correct' d) c1.(cd) (ofN i') NL j x A) as [E NE].
+      replace (♯(i' + cidx j)) with (ofN i' + ofNat (cidx j))%uint63 by lia.
+      rewrite R3, R2. cbn. rewrite REL.
+      split; [exact E|exact NE].
+    Qed.
     Lemma cidx_bound':
       forall j, cidx j + nth j (map (toNat ∘ instsize) c1.(cd)) O <= nlen c.
     Proof.
@@ -1151,11 +1333,44 @@ Section Soundness.
       - eapply N.le_lt_trans, noovfl. rewrite nlen_flat, <-!firstn_map.
         lia with (nsum_firstn_le (cmap nlen cnks) (S n)).
     Qed.
+    Lemma instmapi_len:
+      forall L ip,
+        Forall (.≠ Lst0) (instmapi ip (isel d) L) ->
+        list_sum (map (toNat ∘ instsize) L) =
+        length (concat (map l3l (instmapi ip (isel d) L))).
+    Proof.
+      induction L as [|y L IH]; intros ip NL; [done|].
+      unfold instmapi in NL |- *. rewrite mapi_cons in NL |- *.
+      cbn [rev app map concat list_sum] in NL |- *.
+      inversion NL as [|? ? NL0 NL1]; subst.
+      change (_mapi instsize [] (ip + instsize y)%uint63 (isel d) L)
+        with (instmapi (ip + instsize y)%uint63 (isel d) L) in *.
+      rewrite length_app, (instsize_correct' d ip y NL0), <-(IH _ NL1). reflexivity.
+    Qed.
+    Lemma cidx_all:
+      forall j, (length c1.(cd) <= j)%nat -> cidx j = length c.
+    Proof.
+      intros j J.
+      pose proof (rel_start n c1 NTH) as REL.
+      pose proof no_lst0 as NL. rewrite R2 in NL. cbn in NL. rewrite REL in NL.
+      rewrite R3, R2. cbn. rewrite REL.
+      unfold cidx'. rewrite take_ge by (rewrite length_map; lia).
+      exact (instmapi_len c1.(cd) (ofN i') NL).
+    Qed.
     Lemma irel_next:
-      forall j, (n < length d.(chunks) ->
+      forall j, (S n < length d.(chunks) ->
         length c1.(cd) <= j -> irel (i' + cidx j) = S ♮i)%nat.
     Proof.
-    Admitted.
+      intros j NEXT J. rewrite (cidx_all j J).
+      pose proof (source_nth a d D n c1 NTH) as (CI&DEC&POL&LAST&LT).
+      assert (POS : i' + nlen c = toN d.(arg).(Rewrite.bi') + nlen (flat_map cd (take (S n) cnks))).
+      { unfold i'. rewrite !nlen_flat, <-!firstn_map.
+        erewrite nsum_take_Sn' by (rewrite !ith_map, NTH2; reflexivity).
+        lia. }
+      rewrite nlen_length in POS.
+      rewrite POS, (following_irel n c3 NTH2 NEXT). rewrite R3, R2, R1. cbn.
+      unfold i. lia.
+    Qed.
     Lemma ExecInum:
       forall b j s n
         (VS: store_invs s)
@@ -1177,7 +1392,7 @@ Section Soundness.
     Lemma ExecIimm:
       forall b relax j s sz r imm
         (VS: store_invs s)
-        (R: (r <? 31 = true)%uint63)
+        (R: (r <? 32 = true)%uint63)
         (Q: ith c1.(cd) j = Some (Iimm relax sz r imm))
         (EDGE: PermittedEdge' i' (i'+cidx (S j)))
         (STEP: K_ni (Addr 4(i'+cidx (S j))) (s.[arm_varid ♮r := ♮(resolve d imm)])),
@@ -1196,20 +1411,20 @@ Section Soundness.
       Ltac outchunk := match goal with EDGE: PermittedEdge' _ _ |- _ => repeat eexists; [eapply PEirel; [|eqapply EDGE]; rewrite ?irel_in; blia|] end.
       - destruct Asm.ADRP eqn:ADRP; try done.
         step C. repeat so ADRP. subst i0. simpl in XS.
-        apply (ExecADRP H1) in XS as [S' X']; [|lia].
+        apply (ExecADRP19 H1) in XS as [S' X']; [|lia].
         replace (lsr _ 10) with ♯((i' + cidx j) >> 10) in S' by blia.
         rewrite plusminus52 in S' by blia. subst x. simpl exitof.
         outchunk. eqapply STEP. lia. eqapply S'. unfold clearlow12 in H0. blia.
       - destruct Asm.ADR eqn:ADR; try done.
         step C. repeat so ADR. subst i0. simpl in XS.
-        apply (ExecADR H1) in XS as [S' X']; [|blia..].
+        apply (ExecADR19 H1) in XS as [S' X']; [|blia..].
         subst x. simpl exitof.
         outchunk.
         rewrite S', plusminus62 by lia.
         eqapply STEP; try lia. nify. by rewrite <-(N.shiftl_mul_pow2 _ 2), recompose_bytes'.
       - destruct Asm.ADRP eqn:ADRP.
         + step C. repeat so ADRP. subst i0. simpl in XS.
-          apply (ExecADRP H1) in XS as [S' X']; [| lia].
+          apply (ExecADRP19 H1) in XS as [S' X']; [| lia].
           subst x. simpl exitof.
           inchunk.
           replace (lsr _ 10) with ♯((i' + cidx j) >> 10) in S' by blia.
@@ -1219,7 +1434,7 @@ Section Soundness.
           rewrite update_updated, update_cancel in S'.
           subst x. simpl exitof.
           outchunk. eqapply STEP. lia. rewrite S'. f_equal.
-          rewrite rbits_0_i, land16, cbits_add by lia. nify. blia.
+          apply movk_adrp.
         + step C; apply ExecUDF in XS as [S' X']; subst; repeat eexists; by apply KHere.
       - step C.
         apply ExecMovz in XS as [S' X']; [|lia..].
@@ -1229,7 +1444,7 @@ Section Soundness.
         rewrite update_updated, update_cancel in S'.
         subst x. simpl exitof.
         outchunk. eqapply STEP. lia. rewrite S'. f_equal.
-        rewrite rbits_0_i, cbits_add; blia.
+        apply movk_z1.
       - step C.
         apply ExecMovz in XS as [S' X']; [|blia..].
         subst x. simpl exitof.
@@ -1242,11 +1457,7 @@ Section Soundness.
         rewrite update_updated, update_cancel in S'.
         subst x. simpl exitof.
         outchunk. eqapply STEP. lia. rewrite S'. f_equal.
-        rewrite rbits_0_i, cbits_add, !land16.
-        nify. rewrite (rbits_mod_r _ _ _ 16).
-        rewrite rbits_0'. clear -H0. blia.
-        rewrite <-shiftr_mod_xbits. blia.
-        lia.
+        apply movk_z2. blia.
       Qed.
     Ltac cones :=
       let rec loop n :=
@@ -1258,6 +1469,12 @@ Section Soundness.
                     change i with (ones z); loop n'
                 end
         in loop 63%nat.
+    (* discharge the register/field range side conditions of the Exec lemmas *)
+    Ltac sidecond :=
+      match goal with
+      | |- (_ <? _ = true)%uint63 =>
+          cones; first [rewrite landones; lia | (destruct is_zero; simpl; lia)]
+      end.
     Lemma ExecIb:
       forall b j s sz r t
         (VS: store_invs s)
@@ -1286,7 +1503,8 @@ Section Soundness.
       repeat case_match; try done; simpl in CLL, CSJ.
       - destruct Asm.Bcond eqn:BCOND; try done.
         step C. simpl in XS. repeat so BCOND. subst i0.
-        apply (ExecBcond H1) in XS as [S' X']; [|cones; rewrite landones; lia].
+        eapply (ExecBcond _ H1) in XS as [S' X'].
+        Unshelve. all: try sidecond.
         destruct X'; subst x; simpl exitof.
         rewrite plusminus62 by lia.
         outchunk. by apply STEP.
@@ -1309,21 +1527,24 @@ Section Soundness.
           subst. repeat eexists. by apply KHere.
       - destruct Asm.CBZ eqn:CBZ; try done.
         step C. simpl in XS. repeat so CBZ. subst i0.
-        apply (ExecCBZ H1) in XS as [S' X']; [|cones; rewrite landones; lia..].
+        eapply (ExecCBZ _ _ _ H1) in XS as [S' X'].
+        Unshelve. all: try sidecond.
         destruct X'; subst x; simpl exitof.
         rewrite plusminus62 by lia.
         outchunk. by apply STEP.
         outchunk. eqapply STEP'; auto; lia.
       - destruct Asm.TBZ eqn:TBZ; try done.
         step C. simpl in XS. repeat so TBZ. subst i0.
-        apply (ExecTBZ H1) in XS as [S' X']; [|cones; rewrite landones; lia..].
+        eapply (ExecTBZ _ _ _ _ H1) in XS as [S' X'].
+        Unshelve. all: try sidecond.
         destruct X'; subst x; simpl exitof.
         rewrite plusminus62 by lia.
         outchunk. by apply STEP.
         outchunk. eqapply STEP'; auto; lia.
       - destruct Asm.Bcond eqn:BCOND; destruct Asm.B eqn:B; try done.
         + step C. simpl in XS. repeat so BCOND. subst i0.
-          apply (ExecBcond H1) in XS as [S' X']; [|cones; rewrite landones; lia..].
+          eapply (ExecBcond _ H1) in XS as [S' X'].
+        Unshelve. all: try sidecond.
           destruct X'; subst x; simpl exitof.
           rewrite plusminus62 by lia.
           outchunk. eqapply STEP'; auto; lia.
@@ -1338,7 +1559,8 @@ Section Soundness.
           subst. repeat eexists. by apply KHere.
       - destruct Asm.CBZ eqn:CBZ; destruct Asm.B eqn:B; try done.
         + step C. simpl in XS. repeat so CBZ. subst i0.
-          apply (ExecCBZ H1) in XS as [S' X']; [|cones; rewrite landones || destruct is_zero; simpl; try lia..].
+          eapply (ExecCBZ _ _ _ H1) in XS as [S' X'].
+        Unshelve. all: try sidecond.
           destruct X'; subst x; simpl exitof.
           rewrite plusminus62 by lia.
           outchunk. eqapply STEP'; auto; lia.
@@ -1353,7 +1575,8 @@ Section Soundness.
           subst. repeat eexists. by apply KHere.
       - destruct Asm.TBZ eqn:TBZ; destruct Asm.B eqn:B; try done.
         + step C. simpl in XS. repeat so TBZ. subst i0.
-          apply (ExecTBZ H1) in XS as [S' X']; [|cones; rewrite landones || destruct is_zero; simpl; try lia..].
+          eapply (ExecTBZ _ _ _ _ H1) in XS as [S' X'].
+        Unshelve. all: try sidecond.
           destruct X'; subst x; simpl exitof.
           rewrite plusminus62 by lia.
           outchunk. eqapply STEP'; auto; lia.
@@ -1399,7 +1622,7 @@ Section Soundness.
         subst x0. simpl exitof.
         inchunk. subst' S'. clear c s0.
         step C. simpl in XS.
-        apply ExecUBFX in XS as [m [S' [X' M]]]; try lia.
+        apply ExecUBFX6 in XS as [m [S' [X' M]]]; try lia.
         subst x0. simpl exitof.
         outchunk. subst' S'. specialize (STEP m). hintro STEP.
         eqapply STEP. lia. eqapply M. simpl. nify.
@@ -1409,7 +1632,7 @@ Section Soundness.
         subst x0. simpl exitof.
         inchunk. subst' S'. clear c s0.
         step C. simpl in XS.
-        apply ExecUBFX in XS as [m [S' [X' M]]]; try lia.
+        apply ExecUBFX6 in XS as [m [S' [X' M]]]; try lia.
         subst x0. simpl exitof.
         outchunk. subst' S'. rewrite update_cancel. specialize (STEP m). hintro STEP.
         eqapply STEP. lia. eqapply M. simpl. nify.
@@ -1689,7 +1912,7 @@ Section Soundness.
           eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.Bcond m (cond land 15))));
             [exact VS|rewrite CODE; reflexivity|].
           intros ctx s1 x XS MI. rewrite N.add_0_r in XS.
-          apply (ExecBcond IMM) in XS as [ST EXIT].
+          apply (ExecBcond' IMM) in XS as [ST EXIT].
           2: { change ((cond land ones 4 <? 1<<4)%uint63 = true). apply landones. lia. }
           destruct EXIT as [EXIT|EXIT].
           * rewrite plusminus62 in EXIT by lia. subst x. cbn [exitof N.of_nat]. split.
@@ -1714,7 +1937,7 @@ Section Soundness.
           eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.Bcond 2 (cond lxor 1 land 15))));
             [exact VS|rewrite CODE; reflexivity|].
           intros ctx s1 x XS MI. rewrite N.add_0_r in XS.
-          apply (ExecBcond (m:=2%uint63) eq_refl) in XS as [ST EXIT].
+          apply (ExecBcond' (m:=2%uint63) eq_refl) in XS as [ST EXIT].
           2: { change (((cond lxor 1) land ones 4 <? 1<<4)%uint63 = true). apply landones. lia. }
           replace (ofZ 62 (Z.of_N i' + Sint63.to_Z 2)) with (i'+2) in EXIT by (unfold ofZ; lia).
           destruct EXIT as [EXIT|EXIT].
@@ -1816,7 +2039,7 @@ Section Soundness.
           eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.CBZ (sf land 1) (op land 1) m (rt land 31))));
             [exact VS|rewrite CODE; reflexivity|].
           intros ctx s1 x XS MI. rewrite N.add_0_r in XS.
-          apply (ExecCBZ IMM) in XS as [ST EXIT].
+          apply (ExecCBZ' IMM) in XS as [ST EXIT].
           all: try (cones; apply landones; lia).
           destruct EXIT as [EXIT|EXIT].
           * rewrite plusminus62 in EXIT by lia. subst x. cbn [exitof N.of_nat]. split.
@@ -1841,7 +2064,7 @@ Section Soundness.
           eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.CBZ (sf land 1) (b2i (is_zero op)) 2 (rt land 31))));
             [exact VS|rewrite CODE; reflexivity|].
           intros ctx s1 x XS MI. rewrite N.add_0_r in XS.
-          apply (ExecCBZ (m:=2%uint63) eq_refl) in XS as [ST EXIT].
+          apply (ExecCBZ' (m:=2%uint63) eq_refl) in XS as [ST EXIT].
           all: try (cones; apply landones; lia).
           all: try (unfold b2i; destruct (is_zero op); reflexivity).
           replace (ofZ 62 (Z.of_N i' + Sint63.to_Z 2)) with (i'+2) in EXIT by (unfold ofZ; lia).
@@ -1944,7 +2167,7 @@ Section Soundness.
           eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.TBZ (b5 land 1) (op land 1) (b40 land 15) m (rt land 31))));
             [exact VS|rewrite CODE; reflexivity|].
           intros ctx s1 x XS MI. rewrite N.add_0_r in XS.
-          apply (ExecTBZ IMM) in XS as [ST EXIT].
+          apply (ExecTBZ' IMM) in XS as [ST EXIT].
           all: try (cones; apply landones; lia).
           destruct EXIT as [EXIT|EXIT].
           * rewrite plusminus62 in EXIT by lia. subst x. cbn [exitof N.of_nat]. split.
@@ -1969,7 +2192,7 @@ Section Soundness.
           eapply KStep with (j:=0%nat) (q:=arm_decode (toN (Asm.Encode.TBZ (b5 land 1) (b2i (is_zero op)) (b40 land 15) 2 (rt land 31))));
             [exact VS|rewrite CODE; reflexivity|].
           intros ctx s1 x XS MI. rewrite N.add_0_r in XS.
-          apply (ExecTBZ (m:=2%uint63) eq_refl) in XS as [ST EXIT].
+          apply (ExecTBZ' (m:=2%uint63) eq_refl) in XS as [ST EXIT].
           all: try (cones; apply landones; lia).
           all: try (unfold b2i; destruct (is_zero op); reflexivity).
           replace (ofZ 62 (Z.of_N i' + Sint63.to_Z 2)) with (i'+2) in EXIT by (unfold ofZ; lia).
@@ -2140,6 +2363,570 @@ Section Soundness.
       destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity.
     Qed.
 
+    (* A register write preserves the store invariants. *)
+    Lemma store_invs_upd : forall s r v,
+      store_invs s -> v < 2^64 -> store_invs (s.[arm_varid r := v]).
+    Proof.
+      intros s r v [(MDL&CODE&DATA&NWC&NWD&EXC) FLAGS] V.
+      assert (FM: forall x, (x = V_MEM64 \/ x = A_WRITE \/ x = UXN) ->
+        (s.[arm_varid r := v]) x = s x).
+      { intros x X. unfold arm_varid.
+        destruct X as [X|[X|X]]; subst; repeat case_match; by rewrite update_frame. }
+      assert (T: arm8typctx (arm_varid r) = Some 64)
+        by (unfold arm_varid; repeat case_match; reflexivity).
+      split; [|exact I]. unfold mem_invs, MemHas in *.
+      rewrite !(FM V_MEM64 (or_introl eq_refl)),
+        !(FM A_WRITE (or_intror (or_introl eq_refl))),
+        !(FM UXN (or_intror (or_intror eq_refl))).
+      repeat split; try assumption.
+      apply models_update; [|exact MDL]. by rewrite T.
+    Qed.
+    (* A raw instruction word that the chunk emits is a 4-byte memory read,
+       hence below 2^32. *)
+    Lemma inum_bound : forall j n0 s,
+      mem_invs s -> ith c1.(cd) j = Some (Inum n0) -> ♮n0 < 2^32.
+    Proof.
+      intros j n0 s MI Q.
+      destruct (cidxn Q) as [C NL0]. simpl in C.
+      assert (IT : ith c (cidx j) = Some n0).
+      { rewrite ith_skipn_hd, C. reflexivity. }
+      pose proof (code s MI (cidx j) n0 IT) as CODE.
+      pose proof (getmem_bound 64 LittleE 4 (s V_MEM64) (i' * 4 + (cidx j) * 4)) as B.
+      rewrite CODE in B. change (2 ^ (4 * 8)) with (2 ^ 32) in B. exact B.
+    Qed.
+    (* Any destination of this chunk's indirect branch is a permitted,
+       observable target. *)
+    Lemma chunk_indirect_target : forall lbl D0 dd,
+      c0.(cp) = Pindirect lbl ->
+      nth_error d.(arg).(Rewrite.dsets) ♮lbl = Some D0 -> In dd D0 ->
+      PermittedEdge' i' (toN (d.(Rewrite.rel) dd)) /\
+      (forall s, store_invs s -> K_ni (Addr (toN (d.(Rewrite.rel) dd)*4)) s).
+    Proof.
+      intros lbl D0 dd CP DSN IN.
+      assert (META : metadata c1 = c0).
+      { rewrite R1. unfold change_szs, metadata, setd. destruct c0 as [cn ci ct cp cl []]. reflexivity. }
+      pose proof (source_nth a d D n c1 NTH) as (_&_&POL&_&_).
+      assert (POL0 : c0.(cp) = d.(arg).(Rewrite.pol) c0.(ci)).
+      { rewrite <-META. cbn. rewrite (arg_same a d D). exact POL. }
+      assert (PE : PermittedEdge (toN c0.(ci)) (toN dd)).
+      { apply (IndirectEdge c0.(ci) dd D0 lbl); [|exact DSN|exact IN].
+        rewrite <-POL0. exact CP. }
+      pose proof (relocation_endpoint dd) as (TB & RT & POINT).
+      split.
+      - destruct RT as [ABORT|RT].
+        + rewrite ABORT. apply AbortEdge.
+        + apply TranslatedEdge. rewrite irel_i, RT. exact PE.
+      - intros s VS. apply KHere; [|exact VS].
+        destruct POINT as [POINT|POINT]; [left|right]; rewrite POINT; exact I.
+    Qed.
+    (* Single-target indirect branch: an Iimm loads the relocated target into
+       the branch register, then the original branch word runs and jumps to it. *)
+    Lemma ind1_case : forall Rn dd lbl,
+      (exists z, c1.(cd) = [Iimm true z Rn (Raddr dd); Inum c0.(cn)]) ->
+      (Rn <? 32 = true)%uint63 ->
+      c0.(cp) = Pindirect lbl ->
+      Util.ith d.(arg).(Rewrite.dsets) lbl = Some [dd] ->
+      (♮c0.(cn) < 2^32 -> forall s s1 c x a,
+         exec_stmt arm8typctx s (a64lift a (arm_decode ♮c0.(cn))) c s1 x ->
+         reset_temps s s1 = s /\ x = Some (Addr (s (arm_varid ♮Rn)))) ->
+      Goal.
+    Proof.
+      intros Rn dd lbl [z CD] R CP DS BRX s VS.
+      assert (DSN : nth_error d.(arg).(Rewrite.dsets) ♮lbl = Some [dd])
+        by (rewrite <-Util.ith_nth_error; exact DS).
+      destruct (chunk_indirect_target lbl [dd] dd CP DSN (or_introl eq_refl)) as [TEDGE TEND].
+      assert (Q0 : ith c1.(cd) O = Some (Iimm true z Rn (Raddr dd))) by (rewrite CD; reflexivity).
+      assert (Q1 : ith c1.(cd) (S O) = Some (Inum c0.(cn))) by (rewrite CD; reflexivity).
+      pose proof (cidx_Sn' _ _ _ Q1) as CS1.
+      pose proof (cidx_bound (S (S O))) as CLL. rewrite CS1, nlen_length in CLL.
+      simpl in CS1, CLL.
+      assert (LT : (cidx (S O) < length c)%nat) by lia.
+      assert (IC : irel (i' + cidx (S O)) = ♮i) by (apply irel_in, LT).
+      change (i' + 0) with (i' + cidx O).
+      eapply ExecIimm with (j := O) (sz := z) (r := Rn) (imm := Raddr dd) (relax := true).
+      - exact VS.
+      - exact R.
+      - exact Q0.
+      - apply IntraChunkEdge. by rewrite irel_i, IC.
+      - assert (VS' : store_invs (s.[arm_varid ♮Rn := ♮(resolve d (Raddr dd))]))
+          by (apply store_invs_upd; [exact VS | lia]).
+        pose proof (inum_bound (S O) _ s (proj1 VS) Q1) as WB.
+        eapply ExecInum with (j := S O) (n := c0.(cn)); [exact VS' | exact Q1 |].
+        intros c' s1 x1 XS MI.
+        apply (BRX WB) in XS as [S' X'].
+        rewrite update_updated in X'. subst x1. cbn [exitof]. rewrite S'.
+        split.
+        + exists (i' + cidx (S O)), (toN (d.(Rewrite.rel) dd)), eq_refl, (resolve_raddr_val dd).
+          eapply PEirel; [|exact TEDGE]. rewrite irel_i, IC. reflexivity.
+        + pose proof (TEND _ VS') as KEND. rewrite <-(resolve_raddr_val dd) in KEND. exact KEND.
+    Qed.
+
+    (* Values an indirect branch register may hold when the branch runs: the
+       abort address or the relocated address of a destination in the set. *)
+    Definition IndTgt lbl v := exists D0,
+      nth_error dsets ♮lbl = Some D0 /\
+      (v = ai * 4 \/ exists dd, In dd D0 /\ v = toN (rel dd) * 4).
+    Lemma cidx_lt : forall j x, ith c1.(cd) j = Some x -> cidx j <ₒ length c.
+    Proof.
+      intros j x Q. pose proof (cidx_Sn' _ _ _ Q) as CS.
+      pose proof (cidx_bound (S j)) as CLL. rewrite CS, nlen_length in CLL.
+      assert (SZ : (1 <= ♮(instsize x))%nat)
+        by (destruct x as [?|? [] ? ?|? ?|[] ? ?]; vm_compute; lia).
+      lia.
+    Qed.
+    (* A jump from inside this chunk to an IndTgt value is permitted and lands
+       on an invariant point. *)
+    Lemma ind_target : forall lbl v j s s1,
+      c0.(cp) = Pindirect lbl -> IndTgt lbl v -> j <ₒ length c ->
+      PermittedStep (Addr v, s1, (Addr 4(i'+j), s)) /\
+      (store_invs s1 -> K_ni (Addr v) s1).
+    Proof.
+      intros lbl v j s s1 CP [D0 [DSN [->|[dd [IN ->]]]]] J.
+      - split.
+        + exists (i'+j), ai, eq_refl, eq_refl. apply AbortEdge.
+        + intro VS. apply KHere; [|exact VS]. left. unfold is_ext_addr.
+          assert (EXT : ((bi'+nlen(flat_map cd cnks))*4 <=? ai*4)%N = true)
+            by (apply N.leb_le; pose proof abort_after_code; lia).
+          rewrite EXT, orb_true_r. exact I.
+      - destruct (chunk_indirect_target lbl D0 dd CP DSN IN) as [TEDGE TEND]. split.
+        + exists (i'+j), (toN (rel dd)), eq_refl, eq_refl.
+          eapply PEirel; [|exact TEDGE]. rewrite irel_i, irel_in by exact J. reflexivity.
+        + exact (TEND s1).
+    Qed.
+    (* The indirect jump word at position j: it reaches a permitted target
+       whenever the branch register holds an IndTgt value. *)
+    Lemma ind_jump : forall b lbl rn j w s,
+      c0.(cp) = Pindirect lbl ->
+      ith c1.(cd) j = Some (Inum w) ->
+      (♮w < 2^32 -> forall s s1 c x a,
+        exec_stmt arm8typctx s (a64lift a (arm_decode ♮w)) c s1 x ->
+        x = Some (Addr (s (arm_varid ♮rn)))) ->
+      store_invs s -> IndTgt lbl (s (arm_varid ♮rn)) ->
+      K_nib b (Addr 4(i'+cidx j)) s.
+    Proof.
+      intros b lbl rn j w s CP Q BRX VS TGT.
+      pose proof (inum_bound j w s (proj1 VS) Q) as WB.
+      eapply ExecInum; [exact VS|exact Q|].
+      intros ctx s1 x XS MI. apply (BRX WB) in XS. subst x. cbn [exitof].
+      destruct (ind_target lbl _ (cidx j) s (reset_temps s s1) CP TGT (cidx_lt _ _ Q)) as [PS K].
+      split; [exact PS|apply K; split; [exact MI|exact I]].
+    Qed.
+    (* Single destination: an Iimm loads the relocated target into rn. *)
+    Lemma ind1_prefix : forall b lbl rn dd D0 z j y s,
+      c0.(cp) = Pindirect lbl -> nth_error dsets ♮lbl = Some D0 -> In dd D0 ->
+      (rn <? 32 = true)%uint63 ->
+      ith c1.(cd) j = Some (Iimm true z rn (Raddr dd)) ->
+      ith c1.(cd) (S j) = Some y ->
+      (forall s, store_invs s -> IndTgt lbl (s (arm_varid ♮rn)) ->
+        K_ni (Addr 4(i'+cidx (S j))) s) ->
+      store_invs s -> K_nib b (Addr 4(i'+cidx j)) s.
+    Proof.
+      intros b lbl rn dd D0 z j y s CP DSN IN R Q Q' EPI VS.
+      pose proof (cidx_lt _ _ Q') as LT.
+      eapply ExecIimm; [exact VS|exact R|exact Q| |].
+      - apply IntraChunkEdge. rewrite irel_i, irel_in by exact LT. reflexivity.
+      - apply EPI.
+        + apply store_invs_upd; [exact VS|lia].
+        + rewrite update_updated. exists D0. split; [exact DSN|].
+          right. exists dd. split; [exact IN|]. apply resolve_raddr_val.
+    Qed.
+    (* The setlr block at j: B over the block, BL back to materialize the
+       return address in X30, then the inner instruction at j+2 runs.
+       P is any store property that survives writes to X30. *)
+    Lemma ExecSetlr : forall b j isz bw lw imm inst (P: store -> Prop) s,
+      ith c1.(cd) j = Some (Inum bw) ->
+      ith c1.(cd) (S j) = Some (Iimm false isz 30 (Rimm imm)) ->
+      ith c1.(cd) (S (S j)) = Some inst ->
+      ith c1.(cd) (S (S (S j))) = Some (Inum lw) ->
+      (isz = Sz2 /\ bw = 0x14000004 /\ lw = 0x97fffffd \/
+       isz = Sz3 /\ bw = 0x14000005 /\ lw = 0x97fffffc)%uint63 ->
+      (♮(instsize inst) = 1)%nat ->
+      (forall s v, P s -> P (s.[R_X30 := v])) ->
+      (forall s, store_invs s -> P s -> K_ni (Addr 4(i'+cidx (S (S j)))) s) ->
+      store_invs s -> P s -> K_nib b (Addr 4(i'+cidx j)) s.
+    Proof.
+      intros b j isz bw lw imm inst P s Q0 Q1 Q2 Q3 SZS SZ PX INNER VS PS.
+      pose proof (cidx_Sn' _ _ _ Q0) as C0. pose proof (cidx_Sn' _ _ _ Q1) as C1.
+      pose proof (cidx_Sn' _ _ _ Q2) as C2. rewrite SZ in C2.
+      pose proof (cidx_lt _ _ Q3) as LT3.
+      pose proof (i'cidx_bound (S (S (S j)))) as IPB.
+      assert (INTRA : forall k l, (k <= cidx (S (S (S j))))%nat -> (l <= cidx (S (S (S j))))%nat ->
+        PermittedEdge' (i'+k) (i'+l))
+        by (intros k l K L; apply IntraChunkEdge; rewrite !irel_in by lia; reflexivity).
+      destruct SZS as [(->&->&->)|(->&->&->)]; simpl in C0, C1.
+      all: eapply ExecInum; [exact VS|exact Q0|].
+      all: intros ctx s1 x XS MI.
+      all: apply (ExecB (m:=4%uint63) eq_refl) in XS as [ST EXIT]
+        || apply (ExecB (m:=5%uint63) eq_refl) in XS as [ST EXIT].
+      all: try change (Sint63Axioms.to_Z 4%uint63) with 4%Z in EXIT.
+      all: try change (Sint63Axioms.to_Z 5%uint63) with 5%Z in EXIT.
+      all: match type of EXIT with
+        | _ = Some (Addr (?dst * 4)) =>
+            replace dst with (i'+cidx (S (S (S j)))) in EXIT by (unfold ofZ; lia)
+        end.
+      all: subst x; cbn [exitof]; split.
+      all: try (repeat eexists; apply INTRA; lia).
+      all: assert (VS1 : store_invs (reset_temps s s1)) by (split; [exact MI|exact I]).
+      all: assert (PS1 : P (reset_temps s s1)) by (rewrite ST; exact PS).
+      all: eapply ExecInum; [exact VS1|exact Q3|].
+      all: intros ctx2 s2 x2 XS2 MI2.
+      all: apply (ExecBL (m:=(0-3)%uint63) eq_refl) in XS2 as [ST2 EXIT2]
+        || apply (ExecBL (m:=(0-4)%uint63) eq_refl) in XS2 as [ST2 EXIT2].
+      all: try change (Sint63Axioms.to_Z (0-3)%uint63) with (-3)%Z in EXIT2.
+      all: try change (Sint63Axioms.to_Z (0-4)%uint63) with (-4)%Z in EXIT2.
+      all: match type of EXIT2 with
+        | _ = Some (Addr (?dst * 4)) =>
+            replace dst with (i'+cidx (S j)) in EXIT2 by (unfold ofZ; lia)
+        end.
+      all: subst x2; cbn [exitof]; split.
+      all: try (repeat eexists; apply INTRA; lia).
+      all: assert (VS2 : store_invs (reset_temps (reset_temps s s1) s2))
+        by (split; [exact MI2|exact I]).
+      all: assert (PS2 : P (reset_temps (reset_temps s s1) s2)) by (rewrite ST2; apply PX, PS1).
+      all: eapply ExecIimm with (r := 30%uint63); [exact VS2|reflexivity|exact Q1| |].
+      all: try (rewrite <-(N.add_0_r i') at 1; apply (INTRA 0%nat); lia).
+      all: apply INNER; [apply store_invs_upd; [exact VS2|unfold resolve; lia]|apply PX, PS2].
+    Qed.
+    (* The hash-table lookup at j: PUSH2 a scratch register, hash rn, load the
+       table address into the scratch register, load the table entry into rn,
+       POP2 the scratch register.  Afterwards rn holds an IndTgt value. *)
+    Lemma hash_prefix : forall b lbl rn D0 j y s,
+      c0.(cp) = Pindirect lbl -> nth_error dsets ♮lbl = Some D0 ->
+      (rn <? 31 = true)%uint63 ->
+      ith c1.(cd) j = Some (Inum (Asm.PUSH2 (b2i (is_zero rn)) 31)) ->
+      ith c1.(cd) (S j) = Some (Ihsh rn lbl) ->
+      ith c1.(cd) (S (S j)) = Some (Iimm true Sz2 (b2i (is_zero rn)) (Rtbl lbl)) ->
+      ith c1.(cd) (S (S (S j))) = Some (Inum (Asm.LDR_r64 rn (b2i (is_zero rn)) rn)) ->
+      ith c1.(cd) (S (S (S (S j)))) = Some (Inum (Asm.POP2 (b2i (is_zero rn)) 31)) ->
+      ith c1.(cd) (S (S (S (S (S j))))) = Some y ->
+      (forall s, store_invs s -> IndTgt lbl (s (arm_varid ♮rn)) ->
+        K_ni (Addr 4(i'+cidx (S (S (S (S (S j))))))) s) ->
+      store_invs s -> K_nib b (Addr 4(i'+cidx j)) s.
+    Proof.
+      intros b lbl rn D0 j y s CP DSN R Q0 Q1 Q2 Q3 Q4 Q5 EPI VS.
+      set (rt := b2i (is_zero rn)) in *.
+      assert (RT : (rt <? 2 = true)%uint63) by (unfold rt; destruct is_zero; reflexivity).
+      assert (RTN : rt <> rn).
+      { unfold rt. destruct (is_zero rn) eqn:Z; simpl; intro E; rewrite <-E in Z;
+          vm_compute in Z; discriminate Z. }
+      assert (NRT : arm_varid ♮rn <> arm_varid ♮rt)
+        by (apply varid_neq; [lia|lia|intro E; apply RTN; symmetry; exact E]).
+      (* the table for lbl *)
+      destruct (compute_tables_nth _ _ _ _ _ _ _ tables_D DSN) as (tbl&TN&FH&TCONT&TIDX).
+      destruct (nth_error_split _ _ TN) as (l1&l2&TCS&L1).
+      assert (PRE : firstn ♮lbl tc = l1)
+        by (rewrite TCS, <-L1, firstn_app, Nat.sub_diag, firstn_all; simpl; apply app_nil_r).
+      rewrite PRE in TIDX.
+      assert (TOT : flat_map tblcontent tc =
+        flat_map tblcontent l1 ++ tbl.(tblcontent) ++ flat_map tblcontent l2)
+        by (rewrite TCS, flat_map_app; reflexivity).
+      pose proof tables_noovfl as TB. rewrite TOT, !nlen_length, !length_app in TB.
+      assert (HLEN : (length tbl.(tblcontent) = ♮(Hash.hash_size tbl.(tblhash)))%nat)
+        by (rewrite TCONT; apply table_length).
+      assert (IDX : ♮tbl.(tblidx) = bti + 2 * length (flat_map tblcontent l1)).
+      { rewrite TIDX, len_length. I2N.nify. lia. }
+      assert (RES : ♮(resolve d (Rtbl lbl)) = ♮tbl.(tblidx) * 4).
+      { unfold resolve. rewrite Util.ith_nth_error, TN. cbn. I2N.nify.
+        rewrite N.shiftl_mul_pow2. lia. }
+      (* positions *)
+      pose proof (cidx_Sn' _ _ _ Q0) as C0. pose proof (cidx_Sn' _ _ _ Q1) as C1.
+      pose proof (cidx_Sn' _ _ _ Q2) as C2. pose proof (cidx_Sn' _ _ _ Q3) as C3.
+      pose proof (cidx_Sn' _ _ _ Q4) as C4. simpl in C0, C1, C2, C3, C4.
+      pose proof (cidx_lt _ _ Q5) as LT5.
+      assert (INTRA : forall k l,
+        (k <= cidx (S (S (S (S (S j))))))%nat -> (l <= cidx (S (S (S (S (S j))))))%nat ->
+        PermittedEdge' (i'+k) (i'+l))
+        by (intros k l K L; apply IntraChunkEdge; rewrite !irel_in by lia; reflexivity).
+      (* PUSH2 *)
+      eapply ExecInum; [exact VS|exact Q0|].
+      intros ctx1 s1 x XS MI. clear Q0.
+      destruct (ExecPUSH2g RT XS) as [->| ->]; cbn [exitof].
+      { split; [exact I|apply KHere; [exact I|split; [exact MI|exact I]]]. }
+      split; [repeat eexists; apply INTRA; lia|].
+      assert (VS1 : store_invs (reset_temps s s1)) by (split; [exact MI|exact I]).
+      clear XS MI. revert VS1. generalize (reset_temps s s1). clear s VS s1. intros s VS.
+      (* hash rn *)
+      eapply ExecIhsh with (h := tbl.(tblhash)); [exact VS|exact Q1|exact R| | |
+        rewrite <-(N.add_0_r i') at 1; apply (INTRA 0%nat); lia|].
+      { erewrite nth_error_nth by exact TN. reflexivity. }
+      { exact (find_hash_ok _ _ _ FH). }
+      intros xh XH.
+      assert (VS2 : store_invs (s.[arm_varid ♮rn := xh])) by (apply store_invs_upd; [exact VS|lia]).
+      (* table address into rt *)
+      eapply ExecIimm with (r := rt); [exact VS2|lia|exact Q2|rewrite <-(N.add_0_r i') at 1; apply (INTRA 0%nat); lia|].
+      set (s3 := s.[arm_varid ♮rn := xh].[arm_varid ♮rt := ♮(resolve d (Rtbl lbl))]).
+      assert (VS3 : store_invs s3) by (apply store_invs_upd; [exact VS2|lia]).
+      (* load the entry *)
+      eapply ExecInum; [exact VS3|exact Q3|].
+      intros ctx3 s4 x XS MI.
+      assert (AL : forall st, ♮rt = 31 -> st R_SP mod 16 = 0) by (intros st E; exfalso; lia).
+      apply (ExecLDR64 (ltac:(lia) : (rn <? 32 = true)%uint63) (ltac:(lia) : (rt <? 32 = true)%uint63)
+        (AL _)) in XS as [ST ->].
+      cbn [exitof]. split; [repeat eexists; apply INTRA; lia|].
+      set (xn := N.to_nat xh).
+      assert (XN : (xn < length tbl.(tblcontent))%nat) by (rewrite HLEN; unfold xn; lia).
+      destruct (nth_error tbl.(tblcontent) xn) as [e|] eqn:E; [|apply nth_error_None in E; lia].
+      assert (MEM : getmem 64 LittleE 8 (s3 V_MEM64)
+          (s3 (arm_varid ♮rt) ⊕ s3 (arm_varid ♮rn) * 8) = ♮e).
+      { destruct VS3 as ((MDL&CODE&DATA&_)&_).
+        assert (A : s3 (arm_varid ♮rt) ⊕ s3 (arm_varid ♮rn) * 8 =
+          bti * 4 + (length (flat_map tblcontent l1) + xn)%nat * 8).
+        { unfold s3. rewrite update_updated, update_frame, update_updated by exact NRT.
+          rewrite RES, IDX. unfold xn. rewrite N.mod_small; lia. }
+        rewrite A. apply DATA. rewrite ith_nth_error, TOT, nth_error_app2, Nat.add_sub' by lia.
+        rewrite nth_error_app1 by exact XN. exact E. }
+      rewrite MEM in ST.
+      assert (TGT : IndTgt lbl ♮e).
+      { exists D0. split; [exact DSN|]. rewrite TCONT in E.
+        destruct (table_entry _ _ _ _ _ _ E) as [->|(dd&IN&->)].
+        - left. pose proof (ai_bound a d D). I2N.nify. rewrite N.shiftl_mul_pow2. lia.
+        - right. exists dd. split; [exact IN|].
+          pose proof (relocation_endpoint dd) as (TBD&_). I2N.nify. rewrite N.shiftl_mul_pow2. lia. }
+      assert (VS4 : store_invs (reset_temps s3 s4)) by (split; [exact MI|exact I]).
+      rewrite ST in VS4 |- *. clear MI ST.
+      (* POP2 *)
+      eapply ExecInum; [exact VS4|exact Q4|].
+      intros ctx6 s6 x XS MI.
+      destruct (ExecPOP2g RT XS) as [->|(A&B&C&ST6&->)]; cbn [exitof].
+      { split; [exact I|apply KHere; [exact I|split; [exact MI|exact I]]]. }
+      split; [repeat eexists; apply INTRA; lia|].
+      apply EPI; [split; [exact MI|exact I]|].
+      rewrite ST6.
+      rewrite (update_frame _ _ _ _ (varid_neq_v rn R_SP R eq_refl)).
+      rewrite (update_frame _ _ _ _ (varid_neq_v rn (arm_varid 31) R eq_refl)).
+      rewrite (update_frame _ _ _ _ NRT), update_updated. exact TGT.
+    Qed.
+
+    (* BR and RET: abort unless the policy is indirect with a destination set. *)
+    Lemma chunk_indirect_jump : forall rn,
+      (c0.(ct) = Decode.BR rn \/ c0.(ct) = Decode.RET rn) -> Goal.
+    Proof.
+      intros rn CT'.
+      assert (META : metadata c1 = c0).
+      { rewrite R1. unfold change_szs, metadata, setd. destruct c0 as [cn ci ct cp cl []]. reflexivity. }
+      pose proof (source_nth a d D n c1 NTH) as (_&DEC&_&_&_).
+      assert (DEC0 : Decode.decode c0.(cn) = c0.(ct)) by (rewrite <-META; cbn; exact DEC).
+      assert (RN : (rn <? 32 = true)%uint63).
+      { destruct CT' as [CT|CT]; rewrite CT in DEC0.
+        - pose proof (decoded_BR_register _ _ DEC0). I2N.nify. lia.
+        - pose proof (decoded_RET_register _ _ DEC0). I2N.nify. lia. }
+      assert (RI : rw_inst a c0 = match c0.(cp) with
+        | Pindirect lbl => rw_indirect a rn [Inum c0.(cn)] lbl
+        | _ => [Ib Sz1 (Decode.BL 0) (Rrt 0)] end).
+      { unfold rw_inst. destruct CT' as [CT|CT]; rewrite CT; reflexivity. }
+      destruct c0.(cp) as [b|b t| |lbl] eqn:CP; cbv iota in RI.
+      1,2,3: apply chunk_abort; rewrite R1; cbn; rewrite RI;
+        destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity.
+      unfold rw_indirect in RI. cbv zeta in RI.
+      destruct (Util.ith a.(Rewrite.dsets) lbl orelse []) as [|dd [|d2 rest]] eqn:DSE.
+      - cbv iota in RI. apply chunk_abort; rewrite R1; cbn; rewrite RI;
+          destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity.
+      - cbv iota in RI.
+        apply orelse_cons in DSE.
+        assert (CD : c1.(cd) = [Iimm true Sz3 rn (Raddr dd); Inum c0.(cn)]).
+        { rewrite chunk_unrelaxed.
+          - exact RI.
+          - rewrite RI. intros rel ip inst INST. cbn in INST.
+            repeat destruct INST as [<-|INST]; try contradiction; reflexivity. }
+        apply (ind1_case rn dd lbl (ex_intro _ Sz3 CD) RN CP).
+        + rewrite (arg_same a d D). exact DSE.
+        + intros WB s0 s1 ctx x aa XS.
+          destruct CT' as [CT|CT]; rewrite CT in DEC0.
+          * destruct (word_of_decode_BR _ _ DEC0 WB) as [W _]. rewrite W in XS. exact (ExecBR RN XS).
+          * destruct (word_of_decode_RET _ _ DEC0 WB) as [W _]. rewrite W in XS. exact (ExecRET RN XS).
+      - (* several destinations: look up a hash table *)
+        cbv iota in RI. destruct (rn =? 31)%uint63 eqn:R31; rewrite ?R31 in RI; cbv iota zeta in RI.
+        { apply chunk_abort; rewrite R1; cbn; rewrite RI;
+            destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity. }
+        assert (R31' : (rn <? 31 = true)%uint63) by (apply eqb_false_spec in R31; lia).
+        assert (DSN : nth_error dsets ♮lbl = Some (dd::d2::rest)).
+        { rewrite <-Util.ith_nth_error, (arg_same a d D).
+          destruct (Util.ith a.(Rewrite.dsets) lbl); [cbn in DSE; by subst|discriminate]. }
+        assert (CD : c1.(cd) = [Inum (Asm.PUSH2 (b2i (is_zero rn)) 31); Ihsh rn lbl;
+          Iimm true Sz2 (b2i (is_zero rn)) (Rtbl lbl); Inum (Asm.LDR_r64 rn (b2i (is_zero rn)) rn);
+          Inum (Asm.POP2 (b2i (is_zero rn)) 31); Inum c0.(cn)]).
+        { rewrite chunk_unrelaxed.
+          - exact RI.
+          - rewrite RI. intros rel ip inst INST. cbn in INST.
+            repeat destruct INST as [<-|INST]; try contradiction; reflexivity. }
+        intros s VS. change (i'+0) with (i'+cidx O).
+        eapply (hash_prefix false lbl rn _ O); [exact CP|exact DSN|exact R31'|
+          rewrite CD; reflexivity..| |exact VS].
+        intros s0 VS0 TGT.
+        apply (ind_jump true lbl rn 5 c0.(cn) s0 CP); [rewrite CD; reflexivity| |exact VS0|exact TGT].
+        intros WB s' s1 ctx x aa XS.
+        destruct CT' as [CT|CT]; rewrite CT in DEC0.
+        + destruct (word_of_decode_BR _ _ DEC0 WB) as [W _]. rewrite W in XS. exact (proj2 (ExecBR RN XS)).
+        + destruct (word_of_decode_RET _ _ DEC0 WB) as [W _]. rewrite W in XS. exact (proj2 (ExecRET RN XS)).
+    Qed.
+
+    (* BLR: like BR, but the return address must reach X30.  Under orig_lr the
+       original return address is materialized by a setlr block and the BLR
+       word is turned into BR. *)
+    Lemma chunk_BLR : forall rn, c0.(ct) = Decode.BLR rn -> Goal.
+    Proof.
+      intros rn CT.
+      assert (META : metadata c1 = c0).
+      { rewrite R1. unfold change_szs, metadata, setd. destruct c0 as [cn ci ct cp cl []]. reflexivity. }
+      pose proof (source_nth a d D n c1 NTH) as (_&DEC&_&_&_).
+      assert (DEC0 : Decode.decode c0.(cn) = Decode.BLR rn) by (rewrite <-CT, <-META; cbn; exact DEC).
+      assert (RN : (rn <? 32 = true)%uint63)
+        by (pose proof (decoded_BLR_register _ _ DEC0); I2N.nify; lia).
+      (* the original BLR word jumps to rn *)
+      assert (BLRX : ♮c0.(cn) < 2^32 -> forall s s1 c x a,
+        exec_stmt arm8typctx s (a64lift a (arm_decode ♮c0.(cn))) c s1 x ->
+        x = Some (Addr (s (arm_varid ♮rn)))).
+      { intros WB s s1 ctx x aa XS.
+        destruct (word_of_decode_BLR _ _ DEC0 WB) as [W _]. rewrite W in XS.
+        destruct (ExecBLR RN XS) as (v&_&_&X). exact X. }
+      (* the BLR word with bit 21 cleared is BR rn *)
+      assert (BRX : ♮(c0.(cn) lxor (1<<21)) < 2^32 -> forall s s1 c x a,
+        exec_stmt arm8typctx s (a64lift a (arm_decode ♮(c0.(cn) lxor (1<<21)))) c s1 x ->
+        x = Some (Addr (s (arm_varid ♮rn)))).
+      { intros WB s s1 ctx x aa XS.
+        assert (WB0 : ♮c0.(cn) < 2^32).
+        { rewrite I2N.inj_lxor in WB.
+          replace ♮c0.(cn) with (N.lxor (N.lxor ♮c0.(cn) ♮(1<<21)%uint63) ♮(1<<21)%uint63)
+            by (rewrite N.lxor_assoc, N.lxor_nilpotent, N.lxor_0_r; reflexivity).
+          apply (lxor_bound 32); [exact WB|vm_compute; reflexivity]. }
+        destruct (word_of_decode_BLR _ _ DEC0 WB0) as [W _].
+        rewrite (i2ninj _ _ W), BLR_lxor_BR in XS by exact RN.
+        exact (proj2 (ExecBR RN XS)). }
+      assert (RI : rw_inst a c0 =
+        if a.(orig_lr) && (rn =? 30)%uint63 then
+          match c0.(cp) with
+          | Pindirect lbl =>
+              match Util.ith a.(Rewrite.dsets) lbl orelse [] with
+              | [dd] => setlr ((c0.(ci)+1)<<2) (Ib Sz1 (Decode.B 0) (Raddr dd))
+              | _ => [Ib Sz1 (Decode.BL 0) (Rrt 0)]
+              end
+          | _ => [Ib Sz1 (Decode.BL 0) (Rrt 0)]
+          end
+        else
+          match c0.(cp) with
+          | Pindirect lbl => rw_indirect a rn
+              (if a.(orig_lr) then setlr ((c0.(ci)+1)<<2) (Inum (c0.(cn) lxor (1<<21)))
+               else [Inum c0.(cn)]) lbl
+          | _ => [Ib Sz1 (Decode.BL 0) (Rrt 0)]
+          end).
+      { unfold rw_inst. rewrite CT. reflexivity. }
+      assert (ABORT : rw_inst a c0 = [Ib Sz1 (Decode.BL 0) (Rrt 0)] -> Goal).
+      { intro AB. apply chunk_abort. rewrite R1. cbn. rewrite AB.
+        destruct sz.(cd) as [|x xs]; [exists Sz1|exists (instsz x)]; reflexivity. }
+      assert (STABLE : forall l, rw_inst a c0 = l ->
+        (forall rel ip inst, In inst l -> relaxi rel ip inst = inst) -> c1.(cd) = l).
+      { intros l RL ST. rewrite chunk_unrelaxed; [exact RL|]. rewrite RL. exact ST. }
+      destruct c0.(cp) as [b|b t| |lbl] eqn:CP.
+      1,2,3: apply ABORT; rewrite RI; destruct (_ && _); reflexivity.
+      assert (ORS : forall (o: option (list int)) l, o orelse [] = l -> l <> [] -> o = Some l).
+      { intros [o|] l E NE; cbn in E; [by subst|]. exfalso. apply NE. symmetry. exact E. }
+      assert (DSN : forall D0, Util.ith a.(Rewrite.dsets) lbl = Some D0 ->
+        nth_error dsets ♮lbl = Some D0).
+      { intros D0 E. rewrite <-Util.ith_nth_error, (arg_same a d D). exact E. }
+      intros s VS.
+      destruct (a.(orig_lr) && (rn =? 30))%uint63 eqn:LR30; cbv iota in RI.
+      - (* BLR X30 under orig_lr: only a single destination is kept *)
+        destruct (Util.ith a.(Rewrite.dsets) lbl orelse []) as [|dd [|d2 rest]] eqn:DSE; cbv iota in RI.
+        1,3: revert s VS; apply ABORT; exact RI.
+        pose proof (DSN _ (ORS _ _ DSE ltac:(discriminate))) as DS.
+        destruct (chunk_indirect_target lbl [dd] dd CP DS (or_introl eq_refl)) as [TEDGE TEND].
+        assert (RESOLVE : ♮(resolve d (Raddr dd) >> 2) = ♮(rel dd))
+          by (pose proof (relocation_endpoint dd) as (TB&_); unfold resolve; I2N.nify;
+              rewrite N.shiftl_mul_pow2, N.shiftr_div_pow2; lia).
+        unfold setlr in RI. destruct (((c0.(ci)+1)<<2) <? 1<<32)%uint63 eqn:FIT.
+        all: assert (CD := STABLE _ RI ltac:(intros rel ip inst INST; cbn in INST;
+          repeat destruct INST as [<-|INST]; try contradiction; reflexivity)).
+        all: change (i'+0) with (i'+cidx O).
+        all: eapply (ExecSetlr false O) with (P := fun _ => True);
+          [rewrite CD; reflexivity..
+          |first [ (left; split; [reflexivity|split; reflexivity])
+                 | (right; split; [reflexivity|split; reflexivity]) ]
+          |reflexivity|intros; exact I| |exact VS|exact I].
+        all: intros s0 VS0 _.
+        all: eapply (ExecIb true 2 s0 Sz1 (Raddr dd) (Decode.B 0));
+          [exact VS0|rewrite CD; reflexivity| |intros s1 VS1; rewrite RESOLVE; exact (TEND s1 VS1)
+          |exact I|exact I].
+        all: rewrite RESOLVE; eapply PEirel; [|exact TEDGE].
+        all: rewrite irel_i, irel_in; [reflexivity|eapply cidx_lt; rewrite CD; reflexivity].
+      - (* BLR rn keeps rn intact across the X30 writes of setlr *)
+        assert (NE30 : orig_lr a = true -> arm_varid ♮rn <> R_X30).
+        { intro ORIG. rewrite ORIG in LR30. cbn in LR30.
+          apply (varid_neq rn 30 RN eq_refl). intro E. subst rn. vm_compute in LR30. discriminate LR30. }
+        assert (PX : orig_lr a = true -> forall lbl s v,
+          IndTgt lbl (s (arm_varid ♮rn)) -> IndTgt lbl ((s.[R_X30 := v]) (arm_varid ♮rn))).
+        { intros ORIG lbl' s0 v TG. rewrite update_frame by exact (NE30 ORIG). exact TG. }
+        (* the epilogue after rn holds an IndTgt value at position j *)
+        assert (EPI : forall j, c1.(cd) = take j c1.(cd) ++
+            (if a.(orig_lr) then setlr ((c0.(ci)+1)<<2) (Inum (c0.(cn) lxor (1<<21)))
+             else [Inum c0.(cn)]) ->
+          forall s, store_invs s -> IndTgt lbl (s (arm_varid ♮rn)) ->
+          K_ni (Addr 4(i'+cidx j)) s).
+        { intros j CDJ s0 VS0 TG.
+          assert (Q : forall k x, ith (if a.(orig_lr) then setlr ((c0.(ci)+1)<<2) (Inum (c0.(cn) lxor (1<<21)))
+              else [Inum c0.(cn)]) k = Some x -> ith c1.(cd) (k+j) = Some x).
+          { intros k x QK. pose proof (ith_Some' _ _ _ _ QK) as QKL.
+            pose proof (f_equal (@length _) CDJ) as LEN. rewrite length_app, length_take in LEN.
+            assert (J : (j <= length c1.(cd))%nat) by lia.
+            rewrite CDJ, ith_nth_error, nth_error_app2; rewrite length_take, Nat.min_l by exact J.
+            - rewrite Nat.add_sub, <-ith_nth_error. exact QK.
+            - lia. }
+          destruct (a.(orig_lr)) eqn:ORIG.
+          - unfold setlr in Q. destruct (((c0.(ci)+1)<<2) <? 1<<32)%uint63 eqn:FIT.
+            all: eapply (ExecSetlr true j) with (P := fun s => IndTgt lbl (s (arm_varid ♮rn)));
+              [apply (Q 0%nat); reflexivity
+              |apply (Q 1%nat); reflexivity
+              |apply (Q 2%nat); reflexivity
+              |apply (Q 3%nat); reflexivity
+              |first [ (left; split; [reflexivity|split; reflexivity])
+                     | (right; split; [reflexivity|split; reflexivity]) ]
+              |reflexivity|exact (PX ltac:(first [exact eq_refl|exact ORIG]) lbl)| |exact VS0|exact TG].
+            all: intros s1 VS1 TG1.
+            all: eapply (ind_jump true lbl rn (S (S j)) _ s1 CP); [|exact BRX|exact VS1|exact TG1].
+            all: apply (Q 2%nat); reflexivity.
+          - apply (ind_jump true lbl rn j c0.(cn) s0 CP); [|exact BLRX|exact VS0|exact TG].
+            apply (Q 0%nat). reflexivity. }
+        unfold rw_indirect in RI. cbv zeta in RI.
+        destruct (Util.ith a.(Rewrite.dsets) lbl orelse []) as [|dd [|d2 rest]] eqn:DSE; cbv iota in RI.
+        + revert s VS. apply ABORT. exact RI.
+        + (* one destination *)
+          pose proof (DSN _ (ORS _ _ DSE ltac:(discriminate))) as DS.
+          assert (CD : c1.(cd) = Iimm true Sz3 rn (Raddr dd) ::
+            (if a.(orig_lr) then setlr ((c0.(ci)+1)<<2) (Inum (c0.(cn) lxor (1<<21)))
+             else [Inum c0.(cn)])).
+          { apply STABLE; [exact RI|]. intros rel ip inst INST.
+            destruct (a.(orig_lr));
+              [unfold setlr in INST; destruct (((c0.(ci)+1)<<2) <? 1<<32)%uint63|];
+              cbn in INST; repeat destruct INST as [<-|INST]; try contradiction; reflexivity. }
+          assert (Q1 : exists y, ith c1.(cd) 1 = Some y)
+            by (rewrite CD; destruct (a.(orig_lr));
+                [unfold setlr; destruct (((c0.(ci)+1)<<2) <? 1<<32)%uint63|]; eexists; reflexivity).
+          destruct Q1 as [y Q1]. change (i'+0) with (i'+cidx O).
+          eapply (ind1_prefix false lbl rn dd _ Sz3 O y s CP DS (or_introl eq_refl) RN);
+            [rewrite CD; reflexivity|exact Q1| |exact VS].
+          apply EPI. rewrite CD. reflexivity.
+        + (* several destinations: look up a hash table *)
+          destruct (rn =? 31)%uint63 eqn:R31; rewrite ?R31 in RI; cbv iota zeta in RI.
+          { revert s VS. apply ABORT. exact RI. }
+          assert (R31' : (rn <? 31 = true)%uint63) by (apply eqb_false_spec in R31; lia).
+          pose proof (DSN _ (ORS _ _ DSE ltac:(discriminate))) as DS.
+          assert (CD : c1.(cd) = [Inum (Asm.PUSH2 (b2i (is_zero rn)) 31); Ihsh rn lbl;
+            Iimm true Sz2 (b2i (is_zero rn)) (Rtbl lbl); Inum (Asm.LDR_r64 rn (b2i (is_zero rn)) rn);
+            Inum (Asm.POP2 (b2i (is_zero rn)) 31)] ++
+            (if a.(orig_lr) then setlr ((c0.(ci)+1)<<2) (Inum (c0.(cn) lxor (1<<21)))
+             else [Inum c0.(cn)])).
+          { apply STABLE; [exact RI|]. intros rel ip inst INST.
+            destruct (a.(orig_lr));
+              [unfold setlr in INST; destruct (((c0.(ci)+1)<<2) <? 1<<32)%uint63|];
+              cbn in INST; repeat destruct INST as [<-|INST]; try contradiction; reflexivity. }
+          assert (Q5 : exists y, ith c1.(cd) 5 = Some y)
+            by (rewrite CD; destruct (a.(orig_lr));
+                [unfold setlr; destruct (((c0.(ci)+1)<<2) <? 1<<32)%uint63|]; eexists; reflexivity).
+          destruct Q5 as [y Q5]. change (i'+0) with (i'+cidx O).
+          eapply (hash_prefix false lbl rn _ O y s CP DS R31');
+            [rewrite CD; reflexivity..|exact Q5| |exact VS].
+          apply EPI. rewrite CD. reflexivity.
+    Qed.
+
     Lemma chunk_cases: Goal.
     Proof.
       intros.
@@ -2161,6 +2948,12 @@ Section Soundness.
       { intros sf op imm rt CT. by apply (chunk_CBZ sf op imm rt). }
       assert (TBZ: forall b5 op b40 imm rt, c0.(ct) = Decode.TBZ b5 op b40 imm rt -> K_nib false (Addr 4(i'+0)) s).
       { intros b5 op b40 imm rt CT. by apply (chunk_TBZ b5 op b40 imm rt). }
+      assert (BRC: forall rn, c0.(ct) = Decode.BR rn -> K_nib false (Addr 4(i'+0)) s).
+      { intros rn CT. by apply (chunk_indirect_jump rn (or_introl CT)). }
+      assert (RETC: forall rn, c0.(ct) = Decode.RET rn -> K_nib false (Addr 4(i'+0)) s).
+      { intros rn CT. by apply (chunk_indirect_jump rn (or_intror CT)). }
+      assert (BLRC: forall rn, c0.(ct) = Decode.BLR rn -> K_nib false (Addr 4(i'+0)) s).
+      { intros rn CT. by apply (chunk_BLR rn). }
       unfold change_szs, setd in R1, R2; cbn in R1, R2.
       remember (zip_withl _ _ _) eqn:C. remember zip_withl. forget (map _ _).
       destruct c0, cd, ct; cbn in C, R2; subst l. simpl in R1.
@@ -2169,15 +2962,14 @@ Section Soundness.
       { by eapply ADR. }
       { by eapply ADRP. }
       { by eapply BCOND. }
-      admit.
-      admit.
-      unfold rw_indirect in *.
-      admit.
+      { by eapply BRC. }
+      { by eapply BLRC. }
+      { by eapply RETC. }
       { by eapply B. }
       { by eapply BL. }
       { by eapply CBZ. }
       { by eapply TBZ. }
-    Admitted.
+    Qed.
   End ChunkCases.
   Theorem kotori_soundness:
     forall a0 s0 t x s

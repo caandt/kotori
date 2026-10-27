@@ -1,6 +1,7 @@
 From Stdlib Require Import ZArith.
-From stdpp Require Import list_tactics.
+From stdpp Require Import list_tactics gmap.
 From Kotori Require Import proof.Util proof.I2N Rewrite.
+From Kotori Require Hash.
 From RecordUpdate Require Import RecordUpdate.
 
 Notation "C[ d ]" := (C 0 0 Decode.ignore (Pfallthru true) false d) (format "C[ d ]").
@@ -429,3 +430,157 @@ Section rw2.
     - rewrite findchunk_out; [now right | easy | lia].
   Qed.
 End rw2.
+
+(* Facts about the hash tables built by compute_tables. *)
+Lemma map_single_map {A B} (f: A -> B) l : map_single f l = map f l.
+Proof. induction l; simpl; congruence. Qed.
+
+Lemma iseq_length n l : length (iseq n l) = (to_nat n + length l)%nat.
+Proof.
+  functional induction (iseq n l) using iseq_ind.
+  - apply eqb_correct in e. subst. reflexivity.
+  - rewrite IHl0. simpl. apply eqb_false_correct in e. lia.
+Qed.
+
+Lemma table_length h ai D D' :
+  length (Hash.compute_table_m h ai D D') = to_nat (Hash.hash_size h).
+Proof.
+  unfold Hash.compute_table_m. rewrite map_single_map, length_map, iseq_length. simpl. lia.
+Qed.
+
+(* every value stored by the insertion fold comes from a pair *)
+Lemma table_fold_source h (l: list (int*int)) (m0: iimap) k v :
+  iimap_lookup k (fold_left (fun m p =>
+    iimap_insert (Hash.hash_func h (fst p << 2)) (snd p << 2)
+      (iimap_insert (Hash.hash_func h (snd p << 2)) (snd p << 2) m)) l m0) = Some v ->
+  iimap_lookup k m0 = Some v \/ exists p, In p l /\ v = (snd p << 2)%uint63.
+Proof.
+  revert m0. induction l as [|p l IH]; intros m0 L; simpl in L; [by left|].
+  destruct (IH _ L) as [L'|[q [I E]]]; [|right; exists q; split; [by right|exact E]].
+  unfold iimap_lookup, iimap_insert in L'.
+  apply lookup_insert_Some in L' as [[_ <-]|[_ L']];
+    [right; exists p; split; [by left|done]|].
+  apply lookup_insert_Some in L' as [[_ <-]|[_ L']];
+    [right; exists p; split; [by left|done]|].
+  by left.
+Qed.
+
+Lemma in_combine_map {A B} (f: A -> B) D p :
+  In p (combine D (map f D)) -> In (fst p) D /\ snd p = f (fst p).
+Proof.
+  induction D as [|t D IH]; simpl; [done|]. intros [<-|IN].
+  - split; [by left|done].
+  - destruct (IH IN) as [I E]. split; [by right|exact E].
+Qed.
+
+(* a table entry is the abort address or a relocated destination *)
+Lemma table_entry h ai rel D x e :
+  nth_error (Hash.compute_table_m h ai D (map rel D)) x = Some e ->
+  e = (ai << 2)%uint63 \/ exists dd, In dd D /\ e = (rel dd << 2)%uint63.
+Proof.
+  unfold Hash.compute_table_m. rewrite map_single_map, nth_error_map.
+  destruct (nth_error (iseq _ []) x) as [k|]; simpl; [|discriminate].
+  intro E. injection E as <-.
+  destruct (iimap_lookup k _) as [v|] eqn:L; simpl; [|by left].
+  right. destruct (table_fold_source _ _ _ _ _ L) as [L0|[p [I ->]]].
+  - unfold iimap_empty, iimap_lookup in L0. cbn in L0. discriminate L0.
+  - destruct (in_combine_map _ _ _ I) as [I' ->]. by exists (fst p).
+Qed.
+
+Lemma maybe_map_nth {A B} (f: A -> option B) l l' :
+  maybe_map f l = Some l' ->
+  forall k D0, nth_error l k = Some D0 ->
+    exists r, nth_error l' k = Some r /\ f D0 = Some r.
+Proof.
+  unfold maybe_map, mapfold.
+  revert l'. induction l as [|D t IH]; intros l' M k D0 N; [by destruct k|].
+  simpl in M. unfold maybe_op in M.
+  destruct (f D) as [x|] eqn:FD; simpl in M; [|discriminate].
+  destruct (fold_right _ _ _) as [y|] eqn:E; simpl in M; [|discriminate].
+  injection M as <-. destruct k; simpl in N |- *.
+  - injection N as <-. by exists x.
+  - exact (IH _ eq_refl _ _ N).
+Qed.
+
+Fixpoint tbls (l: list (Hash.hash * list int)) (ti: int) : list table :=
+  match l with
+  | [] => []
+  | (h,t)::r => {|tblhash:=h; tblcontent:=t; tblidx:=ti|} :: tbls r (ti + 2 * len t)
+  end.
+
+Lemma fold_tbls l acc ti :
+  fst (fold_left (fun '(acc, ti) '(h, tbl) =>
+    ({|tblhash:=h; tblcontent:=tbl; tblidx:=ti|}::acc, ti + 2 * len tbl)) l (acc, ti))
+  = rev (tbls l ti) ++ acc.
+Proof.
+  revert acc ti. induction l as [|[h t] r IH]; intros; simpl; [done|].
+  rewrite IH, <-app_assoc. reflexivity.
+Qed.
+
+Lemma len_app {A} (l1 l2: list A) : len (l1 ++ l2) = len l1 + len l2.
+Proof. rewrite !len_length, length_app. lia. Qed.
+
+Lemma tbls_nth l ti k h t :
+  nth_error l k = Some (h,t) ->
+  nth_error (tbls l ti) k = Some {|tblhash:=h; tblcontent:=t;
+    tblidx:=(ti + 2 * len (flat_map tblcontent (firstn k (tbls l ti))))%uint63|}.
+Proof.
+  revert ti k. induction l as [|[h0 t0] r IH]; intros ti k N; [by destruct k|].
+  destruct k; simpl in N |- *.
+  - injection N as <- <-. do 3 f_equal. simpl. lia.
+  - rewrite (IH _ _ N). cbn [firstn flat_map tblcontent]. rewrite len_app. do 2 f_equal. lia.
+Qed.
+
+Lemma compute_tables_nth rel ai bti dsets tc k D0 :
+  compute_tables rel ai bti dsets = Some tc ->
+  nth_error dsets k = Some D0 ->
+  exists tbl, nth_error tc k = Some tbl /\
+    Hash.find_hash D0 (map rel D0) = Some tbl.(tblhash) /\
+    tbl.(tblcontent) = Hash.compute_table_m tbl.(tblhash) ai D0 (map rel D0) /\
+    tbl.(tblidx) = (bti + 2 * len (flat_map tblcontent (firstn k tc)))%uint63.
+Proof.
+  unfold compute_tables. intros C N.
+  destruct (maybe_map _ dsets) as [l|] eqn:M; simpl in C; [|discriminate].
+  injection C as <-.
+  rewrite fold_tbls, app_nil_r, rev_append_rev, app_nil_r, rev_involutive.
+  destruct (maybe_map_nth _ _ _ M _ _ N) as (r&NL&FD).
+  rewrite map_single_map in FD.
+  destruct (Hash.find_hash D0 (map rel D0)) as [h|] eqn:FH; simpl in FD; [|discriminate].
+  injection FD as <-.
+  eexists. rewrite (tbls_nth _ _ _ _ _ NL). split; [reflexivity|]. simpl.
+  rewrite ?map_single_map. repeat split; auto.
+Qed.
+
+(* find_valid only returns values in [x, max) *)
+Lemma find_valid_range max f x y :
+  Hash.find_valid max f x = Some y -> (x <=? y = true /\ y <? max = true)%uint63.
+Proof.
+  functional induction (Hash.find_valid max f x) using Hash.find_valid_ind;
+    intro H; [injection H as <-; lia| |discriminate].
+  destruct (IHo H). lia.
+Qed.
+
+(* the hash parameters chosen by find_hash fit the UBFX/EOR encodings *)
+Lemma find_hash_ok D D' h :
+  Hash.find_hash D D' = Some h ->
+  match h with
+  | Hash.H_UBFX lsb width =>
+      ((lsb <? 64) && (width-1 <? 62) && (lsb+width-1 <? 64) = true)%uint63
+  | Hash.H_EOR_UBFX shift lsb width =>
+      ((shift <? 32) && (lsb <? 64) && (width-1 <? 62) && (lsb+width-1 <? 64) = true)%uint63
+  end.
+Proof.
+  unfold Hash.find_hash. set (l := _ + _).
+  destruct (Hash.find_ubfx l D D') as [h0|] eqn:U.
+  - intro H. injection H as <-. unfold Hash.find_ubfx in U.
+    destruct (Hash.find_ubfx_width _ _ _) as [w|] eqn:W; simpl in U; [|discriminate].
+    destruct (Hash.find_ubfx_lsb _ _ _ _) as [s|] eqn:S; simpl in U; [|discriminate].
+    injection U as <-.
+    apply find_valid_range in W, S. rewrite !andb_true_iff. repeat split; lia.
+  - unfold Hash.find_eorubfx. intro H.
+    destruct (Hash.find_eorubfx_width _ _ _) as [w|] eqn:W; simpl in H; [|discriminate].
+    destruct (Hash.find_eorubfx_shift _ _ _ _) as [sh|] eqn:SH; simpl in H; [|discriminate].
+    destruct (Hash.find_eorubfx_lsb _ _ _ _ _) as [s|] eqn:S; simpl in H; [|discriminate].
+    injection H as <-.
+    apply find_valid_range in W, SH, S. rewrite !andb_true_iff. repeat split; lia.
+Qed.

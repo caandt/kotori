@@ -30,6 +30,12 @@ Module Encode.
     (opc << 30) lor (0x51 << 23) lor (pre << 24) lor (L << 22) lor (imm7 << 15) lor (Rt2 << 10) lor (Rn << 5) lor (Rt).
   Definition EOR sf shift Rm imm6 Rn Rd :=
     (sf << 31) lor (0x4a << 24) lor (shift << 22) lor (Rm << 16) lor (imm6 << 10) lor (Rn << 5) lor (Rd).
+  Definition BR Rn :=
+    (0xd61f << 16) lor (Rn << 5).
+  Definition BLR Rn :=
+    (0xd63f << 16) lor (Rn << 5).
+  Definition RET Rn :=
+    (0xd65f << 16) lor (Rn << 5).
 End Encode.
 Definition bounded x bw :=
   let bound := 1<<(bw-1) in

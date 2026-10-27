@@ -87,11 +87,13 @@ Definition setd{A B} (c: chunk A) (d: B) := C c.(cn) c.(ci) c.(ct) c.(cp) c.(cl)
 Notation chunkmap f l := (map (λ c, setd c (f c)) l).
 Definition instmapi{A} := @_mapi _ A instsize [].
 Notation chunkmapi rel f l := (chunkmap (λ c, instmapi (rel c.(ci)) f c.(cd)) l).
-(* Count four-byte units exactly, without wrapping the machine-integer lengths. *)
+(* Count four-byte units exactly, without wrapping the machine-integer lengths.
+   The bound keeps table byte addresses (index << 2) below 2^63, so the
+   machine-integer table addresses materialized by Rtbl do not wrap. *)
 Definition table_fits bti tables :=
   N.ltb (fold_left (λ n t,
     fold_left (λ n (_: int), (n + 2)%N) t.(tblcontent) n)
-    tables (Z.to_N (to_Z bti))) (2^62)%N.
+    tables (Z.to_N (to_Z bti))) (2^61)%N.
 
 (* Keep original indices and fallthrough arithmetic within the index range. *)
 Definition source_fits a :=
@@ -116,6 +118,9 @@ Section ChunkGeneration.
       | [] => abort
       | [d] => Iimm true Sz3 rn (Raddr d)::epil
       | _ =>
+          (* UBFX with Rd = 31 writes SP, not the register the table lookup
+             reads, so the hash sequence cannot be used for register 31. *)
+          if rn =? 31 then abort else
           let rtmp := b2i (is_zero rn) in
           Inum (Asm.PUSH2 rtmp 31)::
           Ihsh rn lbl::
@@ -179,14 +184,10 @@ Section ChunkGeneration.
       | BR rn | RET rn => ifi (rw_indirect rn [Inum n])
       | BLR rn =>
           if a.(orig_lr) && (rn =? 30) then
-            (* BLR X30 under orig_lr: setlr overwrites X30, so the target
-               cannot be kept in X30 across it.  The original X30 is dead
-               after BLR X30 (it becomes the return address), so nothing
-               observable is lost by not materializing it. *)
             ifi (λ lbl,
               match ith dsets lbl orelse [] with
               | [d] => setlr ((i+1)<<2) (Ib Sz1 (B 0) (Raddr d))
-              | _ => abort  (* no free register to hold a dynamic target *)
+              | _ => abort 
               end)
           else
           ifi (rw_indirect rn (
