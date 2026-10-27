@@ -98,14 +98,16 @@
         default = kotori;
       }
     );
+
     devShells = forAllSystems (
       system: let
         pkgs = import nixpkgs {inherit system;};
         kotori = self.packages.${system}.default;
       in {
         default = pkgs.mkShell {
-          inputsFrom = [kotori];
+          inputsFrom = [kotori];          
           packages = [
+            pkgs.rocqPackages_9_1.vsrocq-language-server   # editor server, same Rocq
             kotori.ocamlPackages.utop
             pkgs.perf
           ];
