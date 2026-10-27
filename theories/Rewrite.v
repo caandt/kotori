@@ -87,6 +87,17 @@ Definition setd{A B} (c: chunk A) (d: B) := C c.(cn) c.(ci) c.(ct) c.(cp) c.(cl)
 Notation chunkmap f l := (map (λ c, setd c (f c)) l).
 Definition instmapi{A} := @_mapi _ A instsize [].
 Notation chunkmapi rel f l := (chunkmap (λ c, instmapi (rel c.(ci)) f c.(cd)) l).
+(* Count four-byte units exactly, without wrapping the machine-integer lengths. *)
+Definition table_fits bti tables :=
+  N.ltb (fold_left (λ n t,
+    fold_left (λ n (_: int), (n + 2)%N) t.(tblcontent) n)
+    tables (Z.to_N (to_Z bti))) (2^62)%N.
+
+(* Keep original indices and fallthrough arithmetic within the index range. *)
+Definition source_fits a :=
+  N.ltb (fold_left (λ n (_: int), N.succ n) a.(code)
+    (Z.to_N (to_Z a.(bi)))) (2^63)%N.
+
 Section ChunkGeneration.
   Variable a : args.
   Notation pol := a.(pol).
@@ -119,6 +130,7 @@ Section ChunkGeneration.
       | _ => false
       end.
     Definition isdirect f d :=
+      (f || negb c.(cl)) &&
       match c.(cp) with
       | Pdirect ft d' => (f || ft) && (d =? d')
       | Pignore => true
@@ -196,7 +208,7 @@ Section ChunkGeneration.
       let ai := pad_to (csum (len chunks)) 10 in
       (λ x, if (bi <=? x) && (x <? ei) then rel x
             else if (bi' <=? x) && (x <? ai) then ai
-            else x, ai).
+            else if x <? 1<<61 then x else ai, ai).
     Definition fits bw n := (lesb (-1<<(bw-1)) n) && (ltsb n (1<<(bw-1))).
     Definition relaxi rel i' inst :=
       match inst with
@@ -249,17 +261,21 @@ Section ChunkGeneration.
     end.
   Definition makedata chunks :=
     let '(rel, ai) := makerel chunks in
+    assert ai <? 1<<61;
     let bti := pad_to (ai + a.(rtlen)>>2) 10 in
     let rets := retlist chunks in
     let devs := deviations 0 0 (map chunksize chunks) in
     tc ← compute_tables rel ai bti dsets;
+    assert table_fits bti tc;
     return {|
       arg := a; chunks := chunks; rel := rel;
       ai := ai; bti := bti; tc := tc;
       rets := rets; devs := devs;
     |}.
   Section Hook.
-  Definition rw_hook hook := makedata (stage3 (hook (stage2 (stage1)))).
+  Definition rw_hook hook :=
+    assert source_fits a;
+    makedata (stage3 (hook (stage2 stage1))).
     Fixpoint index{A} {eqd : EqDecision A} l x i :=
       match l with
       | nil => None
